@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Ana Sayfa{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12 text-center mb-5">
+        <h1>Kripto Para Tahmin Sistemi</h1>
+        <p class="lead">Yapay zeka destekli kripto para analiz ve tahmin platformu</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Teknik Analiz</h5>
+                <p class="card-text">Gelişmiş teknik göstergeler ve analiz araçları ile kripto para piyasalarını analiz edin.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Yapay Zeka Tahminleri</h5>
+                <p class="card-text">Makine öğrenimi algoritmaları ile fiyat tahminleri ve trend analizleri yapın.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Otomatik İşlem</h5>
+                <p class="card-text">Belirlediğiniz stratejilere göre otomatik alım-satım işlemleri gerçekleştirin.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if not current_user.is_authenticated %}
+<div class="row mt-5">
+    <div class="col-md-12 text-center">
+        <p>Hemen ücretsiz hesap oluşturun ve kripto para piyasalarında avantaj yakalayın!</p>
+        <a href="{{ url_for('auth.register') }}" class="btn btn-primary btn-lg">Kayıt Ol</a>
+    </div>
+</div>
+{% endif %}
+
+{% if current_user.is_authenticated %}
+<div class="row mt-5">
+    <div class="col-md-12">
+        <h2>Son Tahminler</h2>
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Kripto Para</th>
+                        <th>Yön</th>
+                        <th>Hedef Fiyat</th>
+                        <th>Zaman</th>
+                        <th>Doğruluk</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for prediction in predictions %}
+                    <tr>
+                        <td>{{ prediction.symbol }}</td>
+                        <td>
+                            {% if prediction.direction == 'up' %}
+                            <span class="text-success">↑ Yükseliş</span>
+                            {% else %}
+                            <span class="text-danger">↓ Düşüş</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ prediction.target_price }}</td>
+                        <td>{{ prediction.timestamp }}</td>
+                        <td>{{ prediction.accuracy }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %} 

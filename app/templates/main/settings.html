@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}Ayarlar{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12 mb-4">
+        <h1>Ayarlar</h1>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Trading Ayarları -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">Trading Ayarları</h5>
+                <a href="{{ url_for('main.analyze_parameters') }}" class="btn btn-sm btn-info">
+                    Parametre Analizi
+                </a>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('main.settings') }}">
+                    {{ trading_form.csrf_token }}
+                    
+                    <div class="mb-3">
+                        <label for="symbol" class="form-label">Kripto Para Çifti</label>
+                        {{ trading_form.symbol(class="form-control") }}
+                        {% if trading_form.symbol.errors %}
+                            {% for error in trading_form.symbol.errors %}
+                            <div class="text-danger">{{ error }}</div>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="timeframe" class="form-label">Zaman Dilimi</label>
+                        {{ trading_form.timeframe(class="form-control") }}
+                        {% if trading_form.timeframe.errors %}
+                            {% for error in trading_form.timeframe.errors %}
+                            <div class="text-danger">{{ error }}</div>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="leverage" class="form-label">Kaldıraç</label>
+                        {{ trading_form.leverage(class="form-control") }}
+                        {% if trading_form.leverage.errors %}
+                            {% for error in trading_form.leverage.errors %}
+                            <div class="text-danger">{{ error }}</div>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="stop_loss" class="form-label">Stop Loss (%)</label>
+                        {{ trading_form.stop_loss(class="form-control") }}
+                        {% if trading_form.stop_loss.errors %}
+                            {% for error in trading_form.stop_loss.errors %}
+                            <div class="text-danger">{{ error }}</div>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="take_profit" class="form-label">Take Profit (%)</label>
+                        {{ trading_form.take_profit(class="form-control") }}
+                        {% if trading_form.take_profit.errors %}
+                            {% for error in trading_form.take_profit.errors %}
+                            <div class="text-danger">{{ error }}</div>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Trading Ayarlarını Kaydet</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- API Ayarları -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">API Ayarları</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('main.settings') }}">
+                    {{ api_form.csrf_token }}
+                    
+                    <div class="mb-3">
+                        <label for="api_key" class="form-label">API Key</label>
+                        {{ api_form.api_key(class="form-control") }}
+                        {% if api_form.api_key.errors %}
+                            {% for error in api_form.api_key.errors %}
+                            <div class="text-danger">{{ error }}</div>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="api_secret" class="form-label">API Secret</label>
+                        {{ api_form.api_secret(class="form-control") }}
+                        {% if api_form.api_secret.errors %}
+                            {% for error in api_form.api_secret.errors %}
+                            <div class="text-danger">{{ error }}</div>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">API Ayarlarını Kaydet</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Güvenlik Uyarısı -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="alert alert-warning">
+            <h5 class="alert-heading">Güvenlik Uyarısı</h5>
+            <p class="mb-0">API anahtarlarınızı kimseyle paylaşmayın. Sadece gerekli izinleri olan API anahtarları kullanın ve düzenli olarak güncelleyin.</p>
+        </div>
+    </div>
+</div>
+{% endblock %} 

@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-5">
+    <h2 class="mb-4">Kripto Para Analiz Sonuçları</h2>
+    
+    <div class="row">
+        {% for timeframe in timeframes %}
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">{{ timeframe }} Periyodu Analizi</h5>
+                </div>
+                <div class="card-body">
+                    {% if results[timeframe] %}
+                    <div class="table-responsive">
+                        <table class="table table-bordered">
+                            <tbody>
+                                <tr>
+                                    <th>Sembol:</th>
+                                    <td>{{ results[timeframe].symbol }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Kaldıraç:</th>
+                                    <td>{{ results[timeframe].leverage }}x</td>
+                                </tr>
+                                <tr>
+                                    <th>Stop Yüzdesi:</th>
+                                    <td>%{{ results[timeframe].stop_percentage }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Başarı Oranı:</th>
+                                    <td>%{{ results[timeframe].success_rate }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Kâr Oranı:</th>
+                                    <td>%{{ results[timeframe].profit_rate }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Başarılı İşlemler:</th>
+                                    <td>{{ results[timeframe].successful_trades }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Başarısız İşlemler:</th>
+                                    <td>{{ results[timeframe].unsuccessful_trades }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Final Bakiye:</th>
+                                    <td>{{ results[timeframe].final_balance }} USDT</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mt-3">
+                        <small class="text-muted">Son Güncelleme: {{ results[timeframe].created_at.strftime('%d.%m.%Y %H:%M') }}</small>
+                    </div>
+                    {% else %}
+                    <p class="text-muted">Bu periyot için henüz analiz sonucu bulunmuyor.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<style>
+.card {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+}
+
+.card:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    transform: translateY(-2px);
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid rgba(0,0,0,0.125);
+}
+
+.table th {
+    width: 40%;
+    background-color: #f8f9fa;
+}
+
+.table td {
+    width: 60%;
+}
+</style>
+{% endblock %} 

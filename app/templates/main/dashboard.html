@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+
+{% block title %}Panel{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12 mb-4">
+        <h1>Trading Paneli</h1>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Trading Ayarları -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Trading Ayarları</h5>
+            </div>
+            <div class="card-body">
+                {% if settings %}
+                    {% for setting in settings %}
+                    <div class="mb-3 p-3 border rounded">
+                        <h6>{{ setting.symbol }} - {{ setting.timeframe }}</h6>
+                        <p class="mb-1">Kaldıraç: {{ setting.leverage }}x</p>
+                        <p class="mb-1">Stop Loss: %{{ setting.stop_loss }}</p>
+                        <p class="mb-1">Take Profit: %{{ setting.take_profit }}</p>
+                        <p class="mb-1">Durum: 
+                            {% if setting.is_active %}
+                            <span class="badge bg-success">Aktif</span>
+                            {% else %}
+                            <span class="badge bg-secondary">Pasif</span>
+                            {% endif %}
+                        </p>
+                        <div class="mt-2">
+                            {% if setting.is_active %}
+                            <a href="{{ url_for('main.stop_trading', settings_id=setting.id) }}" class="btn btn-danger btn-sm">Durdur</a>
+                            {% else %}
+                            <a href="{{ url_for('main.start_trading', settings_id=setting.id) }}" class="btn btn-success btn-sm">Başlat</a>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">Henüz trading ayarı eklenmemiş.</p>
+                    <a href="{{ url_for('main.settings') }}" class="btn btn-primary">Ayarları Düzenle</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Aktif İşlemler -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Aktif İşlemler</h5>
+            </div>
+            <div class="card-body">
+                {% if active_trades %}
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Sembol</th>
+                                    <th>Tip</th>
+                                    <th>Fiyat</th>
+                                    <th>Miktar</th>
+                                    <th>Kaldıraç</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for trade in active_trades %}
+                                <tr>
+                                    <td>{{ trade.symbol }}</td>
+                                    <td>
+                                        {% if trade.type == 'buy' %}
+                                        <span class="text-success">Long</span>
+                                        {% else %}
+                                        <span class="text-danger">Short</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ trade.price }}</td>
+                                    <td>{{ trade.amount }}</td>
+                                    <td>{{ trade.leverage }}x</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted">Aktif işlem bulunmuyor.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Analiz Sonuçları -->
+<div class="row">
+    <div class="col-md-12 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Analiz Sonuçları</h5>
+            </div>
+            <div class="card-body">
+                {% if analysis_results %}
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Sembol</th>
+                                    <th>Zaman Dilimi</th>
+                                    <th>Başarı Oranı</th>
+                                    <th>Optimal Kaldıraç</th>
+                                    <th>Optimal Stop Loss</th>
+                                    <th>Optimal Take Profit</th>
+                                    <th>Tarih</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for result in analysis_results %}
+                                <tr>
+                                    <td>{{ result.symbol }}</td>
+                                    <td>{{ result.timeframe }}</td>
+                                    <td>{{ "%.2f"|format(result.success_rate) }}%</td>
+                                    <td>{{ result.optimal_leverage }}x</td>
+                                    <td>%{{ "%.2f"|format(result.optimal_stop_loss) }}</td>
+                                    <td>%{{ "%.2f"|format(result.optimal_take_profit) }}</td>
+                                    <td>{{ result.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted">Henüz analiz sonucu bulunmuyor.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 
