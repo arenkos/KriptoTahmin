@@ -62,4 +62,4 @@ python run.py
 
 ## Lisans
 
-Bu proje MIT lisansı altında lisanslanmıştır. 
+Bu proje Doğuş Üniversitesi Bitirme Projesi kapsamında yapılmıştır.
