@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+
+{% block title %}Parametre Analizi{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-4">Kripto Para Analiz Sonuçları</h2>
+
+    <!-- Sembol Seçici -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Kripto Para Seçin</h5>
+            <form method="get" class="d-flex align-items-center">
+                <select name="symbol" class="form-select me-2" style="max-width: 200px;">
+                    <option value="">Tüm Semboller</option>
+                    {% for symbol in symbols %}
+                    <option value="{{ symbol }}" {% if symbol == selected_symbol %}selected{% endif %}>{{ symbol }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-primary">Analiz Et</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- En İyi Sonuçlar -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4>En Kârlı Stratejiler</h4>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Sembol</th>
+                            <th>Periyot</th>
+                            <th>Kaldıraç</th>
+                            <th>Stop %</th>
+                            <th>Başarı Oranı</th>
+                            <th>Kâr Oranı</th>
+                            <th>Başarılı İşlem</th>
+                            <th>Başarısız İşlem</th>
+                            <th>Final Bakiye</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for result in results %}
+                        <tr>
+                            <td>{{ result.symbol }}</td>
+                            <td>{{ result.timeframe }}</td>
+                            <td>{{ result.leverage }}</td>
+                            <td>{{ result.stop_percent }}</td>
+                            <td>{{ result.success_rate }}%</td>
+                            <td>{{ result.profit_rate }}%</td>
+                            <td>{{ result.successful_trades }}</td>
+                            <td>{{ result.unsuccessful_trades }}</td>
+                            <td>{{ result.final_balance }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tüm Sonuçlar -->
+    {% if all_results %}
+    <div class="accordion" id="analysisAccordion">
+        {% for symbol, results in all_results.items() %}
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="heading{{ loop.index }}">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" 
+                        data-bs-target="#collapse{{ loop.index }}" aria-expanded="false" 
+                        aria-controls="collapse{{ loop.index }}">
+                    {{ symbol }} - Detaylı Analiz
+                </button>
+            </h2>
+            <div id="collapse{{ loop.index }}" class="accordion-collapse collapse" 
+                 aria-labelledby="heading{{ loop.index }}" data-bs-parent="#analysisAccordion">
+                <div class="accordion-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Periyot</th>
+                                    <th>Kaldıraç</th>
+                                    <th>Stop %</th>
+                                    <th>Başarı Oranı</th>
+                                    <th>Kâr Oranı</th>
+                                    <th>Başarılı İşlem</th>
+                                    <th>Başarısız İşlem</th>
+                                    <th>Final Bakiye</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for result in results %}
+                                <tr>
+                                    <td>{{ result.timeframe }}</td>
+                                    <td>{{ result.leverage }}</td>
+                                    <td>{{ result.stop_percent }}</td>
+                                    <td>{{ result.success_rate }}%</td>
+                                    <td>{{ result.profit_rate }}%</td>
+                                    <td>{{ result.successful_trades }}</td>
+                                    <td>{{ result.unsuccessful_trades }}</td>
+                                    <td>{{ result.final_balance }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+
+<!-- Grafik -->
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Başarı ve Kar Oranları Grafiği</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="analysisChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const ctx = document.getElementById('analysisChart').getContext('2d');
+    
+    const timeframes = {{ results|map(attribute='timeframe')|list|tojson }};
+    const successRates = {{ results|map(attribute='success_rate')|list|tojson }};
+    const profitRates = {{ results|map(attribute='profit_rate')|list|tojson }};
+    
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: timeframes,
+            datasets: [{
+                label: 'Başarı Oranı (%)',
+                data: successRates,
+                backgroundColor: 'rgba(40, 167, 69, 0.5)',
+                borderColor: 'rgba(40, 167, 69, 1)',
+                borderWidth: 1
+            }, {
+                label: 'Kar Oranı (%)',
+                data: profitRates,
+                backgroundColor: 'rgba(0, 123, 255, 0.5)',
+                borderColor: 'rgba(0, 123, 255, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+});
+</script>
+{% endblock %} 

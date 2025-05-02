@@ -1,0 +1,264 @@
+{% extends 'base.html' %}
+
+{% block title %}Backtest Sonuçları{% endblock %}
+
+{% block styles %}
+<style>
+  .results-container {
+    margin-top: 20px;
+  }
+  .result-card {
+    margin-bottom: 15px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .badge-profit {
+    font-size: 1rem;
+  }
+  .profit-positive {
+    background-color: #28a745;
+  }
+  .profit-negative {
+    background-color: #dc3545;
+  }
+  .loading {
+    display: flex;
+    justify-content: center;
+    padding: 20px;
+  }
+  #runBacktestForm {
+    margin-bottom: 20px;
+    padding: 15px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    background-color: #f8f9fa;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h1 class="mt-4 mb-3">Backtest Sonuçları</h1>
+  
+  <div class="row">
+    <div class="col-md-12">
+      <div class="card" id="runBacktestForm">
+        <div class="card-body">
+          <h5 class="card-title">Yeni Backtest Çalıştır</h5>
+          <form id="newBacktestForm">
+            <div class="row">
+              <div class="col-md-5">
+                <div class="form-group">
+                  <label for="symbolSelect">Sembol</label>
+                  <select class="form-control" id="symbolSelect">
+                    <option value="BTC/USDT">BTC/USDT</option>
+                    <option value="ETH/USDT">ETH/USDT</option>
+                    <option value="BNB/USDT">BNB/USDT</option>
+                    <option value="XRP/USDT">XRP/USDT</option>
+                    <option value="ADA/USDT">ADA/USDT</option>
+                  </select>
+                </div>
+              </div>
+              <div class="col-md-5">
+                <div class="form-group">
+                  <label for="timeframeSelect">Zaman Aralığı</label>
+                  <select class="form-control" id="timeframeSelect">
+                    <option value="1m">1 Dakika</option>
+                    <option value="3m">3 Dakika</option>
+                    <option value="5m">5 Dakika</option>
+                    <option value="15m">15 Dakika</option>
+                    <option value="30m">30 Dakika</option>
+                    <option value="1h" selected>1 Saat</option>
+                    <option value="2h">2 Saat</option>
+                    <option value="4h">4 Saat</option>
+                    <option value="1d">1 Gün</option>
+                    <option value="1w">1 Hafta</option>
+                  </select>
+                </div>
+              </div>
+              <div class="col-md-2">
+                <button type="submit" class="btn btn-primary mt-4">Backtest Çalıştır</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="row">
+    <div class="col-md-12">
+      <div class="input-group mb-3">
+        <div class="input-group-prepend">
+          <label class="input-group-text" for="filterSymbol">Filtreleme</label>
+        </div>
+        <select class="custom-select" id="filterSymbol">
+          <option value="" selected>Tüm Semboller</option>
+          <option value="BTC">BTC</option>
+          <option value="ETH">ETH</option>
+          <option value="BNB">BNB</option>
+          <option value="XRP">XRP</option>
+          <option value="ADA">ADA</option>
+        </select>
+      </div>
+    </div>
+  </div>
+  
+  <div class="loading" id="loadingSpinner">
+    <div class="spinner-border text-primary" role="status">
+      <span class="sr-only">Yükleniyor...</span>
+    </div>
+  </div>
+  
+  <div class="row results-container" id="resultsContainer">
+    <!-- Sonuçlar buraya dinamik olarak eklenecek -->
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // Sayfa yüklendiğinde sonuçları getir
+    fetchResults();
+    
+    // Filtre değiştiğinde sonuçları güncelle
+    document.getElementById('filterSymbol').addEventListener('change', function() {
+      fetchResults(this.value);
+    });
+    
+    // Yeni backtest çalıştırma formu
+    document.getElementById('newBacktestForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      runBacktest();
+    });
+  });
+  
+  function fetchResults(symbol = '') {
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    const resultsContainer = document.getElementById('resultsContainer');
+    
+    loadingSpinner.style.display = 'flex';
+    resultsContainer.innerHTML = '';
+    
+    fetch(`/backtest/results?symbol=${symbol}`)
+      .then(response => response.json())
+      .then(results => {
+        loadingSpinner.style.display = 'none';
+        
+        if (results.length === 0) {
+          resultsContainer.innerHTML = '<div class="col-12"><div class="alert alert-info">Henüz backtest sonucu bulunmuyor.</div></div>';
+          return;
+        }
+        
+        // Sonuçları sembole göre grupla
+        const groupedResults = {};
+        results.forEach(result => {
+          if (!groupedResults[result.symbol]) {
+            groupedResults[result.symbol] = [];
+          }
+          groupedResults[result.symbol].push(result);
+        });
+        
+        // Her sembol için kartlar oluştur
+        for (const symbol in groupedResults) {
+          const symbolResults = groupedResults[symbol];
+          
+          const symbolCard = document.createElement('div');
+          symbolCard.className = 'col-12 mb-4';
+          symbolCard.innerHTML = `
+            <div class="card">
+              <div class="card-header bg-dark text-white">
+                <h5>${symbol} Sonuçları</h5>
+              </div>
+              <div class="card-body">
+                <div class="row" id="${symbol}-results"></div>
+              </div>
+            </div>
+          `;
+          
+          resultsContainer.appendChild(symbolCard);
+          const symbolResultsContainer = document.getElementById(`${symbol}-results`);
+          
+          // Her zaman dilimi için kart oluştur
+          symbolResults.forEach(result => {
+            const resultCard = document.createElement('div');
+            resultCard.className = 'col-md-6 col-lg-4 mb-3';
+            
+            const profitClass = result.profit_rate >= 0 ? 'profit-positive' : 'profit-negative';
+            
+            resultCard.innerHTML = `
+              <div class="card result-card h-100">
+                <div class="card-header">
+                  <strong>${result.timeframe}</strong>
+                  <span class="badge ${profitClass} badge-profit">
+                    ${result.profit_rate.toFixed(2)}%
+                  </span>
+                </div>
+                <div class="card-body">
+                  <p><strong>Parametreler:</strong> ATR(${result.atr_period}, ${result.atr_multiplier})</p>
+                  <p><strong>Kaldıraç:</strong> ${result.leverage}x</p>
+                  <p><strong>Stop Loss:</strong> ${result.stop_percentage}%</p>
+                  <p><strong>Başarı Oranı:</strong> ${result.success_rate.toFixed(2)}%</p>
+                  <p><strong>İşlemler:</strong> ${result.successful_trades} başarılı, ${result.unsuccessful_trades} başarısız</p>
+                  <p><strong>Toplam:</strong> ${result.total_trades} işlem</p>
+                  <p><strong>Final Bakiye:</strong> ${result.final_balance.toFixed(2)} USDT</p>
+                </div>
+                <div class="card-footer text-muted">
+                  Son Güncelleme: ${new Date(result.updated_at).toLocaleString()}
+                </div>
+              </div>
+            `;
+            
+            symbolResultsContainer.appendChild(resultCard);
+          });
+        }
+      })
+      .catch(error => {
+        console.error('Error fetching results:', error);
+        loadingSpinner.style.display = 'none';
+        resultsContainer.innerHTML = '<div class="col-12"><div class="alert alert-danger">Sonuçlar yüklenirken bir hata oluştu.</div></div>';
+      });
+  }
+  
+  function runBacktest() {
+    const symbol = document.getElementById('symbolSelect').value;
+    const timeframe = document.getElementById('timeframeSelect').value;
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    
+    // Kullanıcıya bildirim
+    loadingSpinner.style.display = 'flex';
+    alert(`${symbol} için ${timeframe} zaman aralığında yeni bir backtest başlatılıyor. Bu işlem birkaç dakika sürebilir.`);
+    
+    fetch('/backtest/run', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        symbol: symbol,
+        timeframe: timeframe
+      })
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        alert('Backtest başarıyla tamamlandı!');
+        fetchResults(document.getElementById('filterSymbol').value);
+      } else {
+        alert(`Backtest sırasında bir hata oluştu: ${data.error}`);
+        loadingSpinner.style.display = 'none';
+      }
+    })
+    .catch(error => {
+      console.error('Error running backtest:', error);
+      alert('Backtest sırasında bir hata oluştu. Lütfen tekrar deneyin.');
+      loadingSpinner.style.display = 'none';
+    });
+  }
+</script>
+{% endblock %} 

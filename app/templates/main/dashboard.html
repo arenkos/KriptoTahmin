@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+
+{% block title %}Panel{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <h2 class="mb-4">Kullanıcı Paneli</h2>
+
+    <!-- Trading Ayarları -->
+    <div class="row">
+        <div class="col-md-12 mb-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Trading Ayarları</h5>
+                    <a href="{{ url_for('main.settings') }}" class="btn btn-sm btn-primary">
+                        <i class="fas fa-cog"></i> Ayarları Düzenle
+                    </a>
+                </div>
+                <div class="card-body">
+                    {% if settings %}
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Sembol</th>
+                                        <th>Periyot</th>
+                                        <th>Kaldıraç</th>
+                                        <th>Stop Loss</th>
+                                        <th>Take Profit</th>
+                                        <th>Durum</th>
+                                        <th>İşlemler</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for setting in settings %}
+                                    <tr>
+                                        <td>{{ setting.symbol }}</td>
+                                        <td>{{ setting.timeframe }}</td>
+                                        <td>{{ setting.leverage }}x</td>
+                                        <td>%{{ setting.stop_loss }}</td>
+                                        <td>%{{ setting.take_profit }}</td>
+                                        <td>
+                                            {% if setting.is_active %}
+                                            <span class="badge bg-success">Aktif</span>
+                                            {% else %}
+                                            <span class="badge bg-secondary">Pasif</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if setting.is_active %}
+                                            <a href="{{ url_for('main.stop_trading', settings_id=setting.id) }}" class="btn btn-sm btn-danger">Durdur</a>
+                                            {% else %}
+                                            <a href="{{ url_for('main.start_trading', settings_id=setting.id) }}" class="btn btn-sm btn-success">Başlat</a>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info">
+                            Henüz trading ayarı oluşturmadınız. 
+                            <a href="{{ url_for('main.settings') }}">Buradan ayarlarınızı oluşturun.</a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- İşlem Geçmişi -->
+    <div class="row">
+        <div class="col-md-12 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">İşlem Geçmişi</h5>
+                </div>
+                <div class="card-body">
+                    {% if transactions.items %}
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Sinyal Tarihi</th>
+                                        <th>Sembol</th>
+                                        <th>Sinyal Yönü</th>
+                                        <th>Giriş Değeri</th>
+                                        <th>İşlem Öncesi Bakiye</th>
+                                        <th>İşlem Sonu Bakiye</th>
+                                        <th>Kar/Zarar</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for tx in transactions.items %}
+                                    <tr>
+                                        <td>{{ tx.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                                        <td>{{ tx.symbol }}</td>
+                                        <td>
+                                            {% if tx.type == 'buy' %}
+                                            <span class="badge bg-success">LONG</span>
+                                            {% else %}
+                                            <span class="badge bg-danger">SHORT</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ tx.price }}</td>
+                                        <td>{{ (tx.amount * tx.price) | round(2) }}</td>
+                                        <td>
+                                            {% if tx.status == 'closed' %}
+                                                {{ ((tx.amount * tx.price) + tx.profit_loss) | round(2) }}
+                                            {% else %}
+                                                -
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if tx.profit_loss %}
+                                                <span class="{% if tx.profit_loss > 0 %}text-success{% else %}text-danger{% endif %}">
+                                                    {{ tx.profit_loss | round(2) }}
+                                                </span>
+                                            {% else %}
+                                                -
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <!-- Sayfalama -->
+                        <div class="d-flex justify-content-center mt-4">
+                            <nav aria-label="İşlem Geçmişi Sayfaları">
+                                <ul class="pagination">
+                                    {% if transactions.has_prev %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="{{ url_for('main.dashboard', page=transactions.prev_num) }}" aria-label="Önceki">
+                                            <span aria-hidden="true">&laquo;</span>
+                                        </a>
+                                    </li>
+                                    {% else %}
+                                    <li class="page-item disabled">
+                                        <span class="page-link">&laquo;</span>
+                                    </li>
+                                    {% endif %}
+                                    
+                                    {% set start_page = transactions.page - 2 if transactions.page > 2 else 1 %}
+                                    {% set end_page = start_page + 4 if start_page + 4 <= transactions.pages else transactions.pages %}
+                                    {% set start_page = end_page - 4 if end_page - 4 >= 1 else 1 %}
+                                    
+                                    {% for page_num in range(start_page, end_page + 1) %}
+                                    <li class="page-item {% if page_num == transactions.page %}active{% endif %}">
+                                        <a class="page-link" href="{{ url_for('main.dashboard', page=page_num) }}">{{ page_num }}</a>
+                                    </li>
+                                    {% endfor %}
+                                    
+                                    {% if transactions.has_next %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="{{ url_for('main.dashboard', page=transactions.next_num) }}" aria-label="Sonraki">
+                                            <span aria-hidden="true">&raquo;</span>
+                                        </a>
+                                    </li>
+                                    {% else %}
+                                    <li class="page-item disabled">
+                                        <span class="page-link">&raquo;</span>
+                                    </li>
+                                    {% endif %}
+                                </ul>
+                            </nav>
+                        </div>
+                    {% else %}
+                        <p class="text-muted">Henüz işlem geçmişi bulunmuyor.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.card {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+}
+
+.card:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    transform: translateY(-2px);
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid rgba(0,0,0,0.125);
+}
+
+.table th {
+    background-color: #f8f9fa;
+}
+
+.text-success {
+    font-weight: bold;
+}
+
+.text-danger {
+    font-weight: bold;
+}
+</style>
+{% endblock %} 

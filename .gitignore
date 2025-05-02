@@ -1,0 +1,51 @@
+# Database files
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+crypto_data.db*
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Log files
+*.log
+*.log.*
+
+# Virtual Environment
+venv/
+ENV/
+venv
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environment variables
+.env
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Large binary files
+*.pkl
+*.h5
+*.csv
+*.xlsx
+*.zip
+
+# Git artifacts
+repo-mirror.git/ 

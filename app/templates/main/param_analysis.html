@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-5">
+    <h2 class="mb-4">Parametre Analiz Sonuçları</h2>
+    
+    {% if error %}
+    <div class="alert alert-danger">
+        {{ error }}
+    </div>
+    {% else %}
+    
+    <!-- Sembol Filtresi -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="card-title mb-0">Sembol Filtresi</h5>
+        </div>
+        <div class="card-body">
+            <form method="get" action="{{ url_for('main.param_analysis') }}">
+                <div class="mb-3">
+                    <label for="symbol" class="form-label">Kripto Para Seçin:</label>
+                    <select class="form-select" id="symbol" name="symbol" onchange="this.form.submit()">
+                        <option value="">Tümünü Göster</option>
+                        {% for symbol in symbols %}
+                        <option value="{{ symbol }}" {% if symbol == selected_symbol %}selected{% endif %}>{{ symbol }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Sonuçlar Tablosu -->
+    <div class="card">
+        <div class="card-header">
+            <h5 class="card-title mb-0">
+                {% if selected_symbol %}
+                    {{ selected_symbol }} Analiz Sonuçları
+                {% else %}
+                    Tüm Analiz Sonuçları
+                {% endif %}
+            </h5>
+        </div>
+        <div class="card-body">
+            {% if results %}
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th>Sembol</th>
+                            <th>Zaman Dilimi</th>
+                            <th>Kaldıraç</th>
+                            <th>Stop Yüzdesi</th>
+                            <th>Başarılı İşlemler</th>
+                            <th>Başarısız İşlemler</th>
+                            <th>Final Bakiye</th>
+                            <th>Kar Oranı (%)</th>
+                            <th>İşlemler</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for result in results %}
+                        <tr>
+                            <td>{{ result.symbol }}</td>
+                            <td>{{ result.timeframe }}</td>
+                            <td>{{ result.leverage }}x</td>
+                            <td>%{{ result.stop_percentage }}</td>
+                            <td>{{ result.successful_trades }}</td>
+                            <td>{{ result.unsuccessful_trades }}</td>
+                            <td>{{ result.final_balance }}</td>
+                            <td>
+                                {% set profit_rate = ((result.final_balance / 100.0) - 1) * 100 %}
+                                <span class="{% if profit_rate > 0 %}text-success{% else %}text-danger{% endif %}">
+                                    %{{ "%.2f"|format(profit_rate) }}
+                                </span>
+                            </td>
+                            <td>
+                                <a href="{{ url_for('main.apply_settings', symbol=result.symbol, timeframe=result.timeframe, leverage=result.leverage, stop_percentage=result.stop_percentage) }}" class="btn btn-sm btn-primary">Kullan</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted">Herhangi bir sonuç bulunamadı.</p>
+            {% endif %}
+        </div>
+    </div>
+    
+    {% if all_results and all_results|length > 0 %}
+    <!-- Her Zaman Dilimi İçin En İyi Sonuçlar -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="card-title mb-0">Zaman Dilimlerine Göre En İyi Sonuçlar</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                {% for timeframe in timeframes %}
+                <div class="col-md-6 mb-4">
+                    <div class="card">
+                        <div class="card-header bg-light">
+                            <h6 class="card-title mb-0">{{ timeframe }} Periyodu</h6>
+                        </div>
+                        <div class="card-body">
+                            {% if timeframe_results[timeframe] %}
+                                {% set best_result = timeframe_results[timeframe]|sort(attribute='final_balance')|reverse|first %}
+                                <table class="table table-sm">
+                                    <tbody>
+                                        <tr>
+                                            <th>En İyi Sembol:</th>
+                                            <td>{{ best_result.symbol }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Kaldıraç:</th>
+                                            <td>{{ best_result.leverage }}x</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Stop Yüzdesi:</th>
+                                            <td>%{{ best_result.stop_percentage }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Başarılı/Başarısız:</th>
+                                            <td>{{ best_result.successful_trades }} / {{ best_result.unsuccessful_trades }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Final Bakiye:</th>
+                                            <td>{{ best_result.final_balance }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Kâr Oranı:</th>
+                                            {% set profit_rate = ((best_result.final_balance / 100.0) - 1) * 100 %}
+                                            <td class="{% if profit_rate > 0 %}text-success{% else %}text-danger{% endif %}">
+                                                %{{ "%.2f"|format(profit_rate) }}
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                <div class="mt-2">
+                                    <a href="{{ url_for('main.apply_settings', symbol=best_result.symbol, timeframe=best_result.timeframe, leverage=best_result.leverage, stop_percentage=best_result.stop_percentage) }}" class="btn btn-sm btn-primary w-100">Bu Ayarları Kullan</a>
+                                </div>
+                            {% else %}
+                                <p class="text-muted">Bu periyot için sonuç bulunamadı.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    {% endif %}
+</div>
+
+<style>
+.card {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+}
+
+.card:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    transform: translateY(-2px);
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid rgba(0,0,0,0.125);
+}
+
+.table th {
+    background-color: #f8f9fa;
+}
+
+.text-success {
+    font-weight: bold;
+}
+
+.text-danger {
+    font-weight: bold;
+}
+</style>
+{% endblock %} 
