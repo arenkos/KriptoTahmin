@@ -1,0 +1,6 @@
+# Database files
+*.db
+*.db-journal
+crypto_data.db*
+*.log
+venv/
