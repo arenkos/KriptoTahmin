@@ -46,9 +46,8 @@
       </div>
   </div>
   {% endif %}
-  
-  {% if current_user.is_authenticated %}
-  <!-- TradingView Widget BEGIN -->
+
+<!-- TradingView Widget BEGIN -->
   <div class="row mt-4" style="height:80vh;width:100%">
       <div class="col-12" style="height:100%;">
           <div class="card mb-4" style="height:100%;">
@@ -78,6 +77,8 @@
       </div>
   </div>
   <!-- TradingView Widget END -->
+  {% if current_user.is_authenticated %}
+
   <!--
   <div class="row mt-5">
       <div class="col-md-12">
