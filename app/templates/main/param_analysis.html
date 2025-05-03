@@ -44,17 +44,18 @@
         <div class="card-body">
             {% if results %}
             <div class="table-responsive">
-                <table class="table table-striped table-hover">
+                <table class="table table-striped table-hover" id="results-table">
                     <thead>
                         <tr>
-                            <th>Sembol</th>
-                            <th>Zaman Dilimi</th>
-                            <th>Kaldıraç</th>
-                            <th>Stop Yüzdesi</th>
-                            <th>Başarılı İşlemler</th>
-                            <th>Başarısız İşlemler</th>
-                            <th>Final Bakiye</th>
-                            <th>Kar Oranı (%)</th>
+                            <th class="sortable" data-sort="symbol">Sembol <i class="fa-solid fa-sort"></i></th>
+                            <th class="sortable" data-sort="timeframe">Zaman Dilimi <i class="fa-solid fa-sort"></i></th>
+                            <th class="sortable" data-sort="leverage">Kaldıraç <i class="fa-solid fa-sort"></i></th>
+                            <th class="sortable" data-sort="stop">Stop Yüzdesi <i class="fa-solid fa-sort"></i></th>
+                            <th class="sortable" data-sort="success">Başarılı İşlemler <i class="fa-solid fa-sort"></i></th>
+                            <th class="sortable" data-sort="fail">Başarısız İşlemler <i class="fa-solid fa-sort"></i></th>
+                            <th class="sortable" data-sort="success-rate">Başarı Oranı (%) <i class="fa-solid fa-sort"></i></th>
+                            <th class="sortable" data-sort="balance">Final Bakiye <i class="fa-solid fa-sort"></i></th>
+                            <th class="sortable" data-sort="profit">Kar Oranı (%) <i class="fa-solid fa-sort"></i></th>
                             <th>İşlemler</th>
                         </tr>
                     </thead>
@@ -63,12 +64,18 @@
                         <tr>
                             <td>{{ result.symbol }}</td>
                             <td>{{ result.timeframe }}</td>
-                            <td>{{ result.leverage }}x</td>
-                            <td>%{{ result.stop_percentage }}</td>
+                            <td data-value="{{ result.leverage }}">{{ result.leverage }}x</td>
+                            <td data-value="{{ result.stop_percentage }}">%{{ result.stop_percentage }}</td>
                             <td>{{ result.successful_trades }}</td>
                             <td>{{ result.unsuccessful_trades }}</td>
-                            <td>{{ result.final_balance }}</td>
-                            <td>
+                            <td data-value="{{ (result.successful_trades / (result.successful_trades + result.unsuccessful_trades) * 100) if (result.successful_trades + result.unsuccessful_trades) > 0 else 0 }}">
+                                {% set success_rate = (result.successful_trades / (result.successful_trades + result.unsuccessful_trades) * 100) if (result.successful_trades + result.unsuccessful_trades) > 0 else 0 %}
+                                <span class="{% if success_rate > 50 %}text-success{% else %}text-danger{% endif %}">
+                                    %{{ "%.2f"|format(success_rate) }}
+                                </span>
+                            </td>
+                            <td data-value="{{ result.final_balance }}">{{ result.final_balance }}</td>
+                            <td data-value="{{ ((result.final_balance / 100.0) - 1) * 100 }}">
                                 {% set profit_rate = ((result.final_balance / 100.0) - 1) * 100 %}
                                 <span class="{% if profit_rate > 0 %}text-success{% else %}text-danger{% endif %}">
                                     %{{ "%.2f"|format(profit_rate) }}
@@ -122,6 +129,13 @@
                                         <tr>
                                             <th>Başarılı/Başarısız:</th>
                                             <td>{{ best_result.successful_trades }} / {{ best_result.unsuccessful_trades }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Başarı Oranı:</th>
+                                            {% set success_rate = (best_result.successful_trades / (best_result.successful_trades + best_result.unsuccessful_trades) * 100) if (best_result.successful_trades + best_result.unsuccessful_trades) > 0 else 0 %}
+                                            <td class="{% if success_rate > 50 %}text-success{% else %}text-danger{% endif %}">
+                                                %{{ "%.2f"|format(success_rate) }}
+                                            </td>
                                         </tr>
                                         <tr>
                                             <th>Final Bakiye:</th>
@@ -181,5 +195,305 @@
 .text-danger {
     font-weight: bold;
 }
+
+th.sortable {
+    cursor: pointer;
+    position: relative;
+}
+
+th.sortable:hover {
+    background-color: #e9ecef;
+}
+
+th.sortable i {
+    margin-left: 5px;
+    opacity: 0.5;
+}
+
+th.asc i, th.desc i {
+    opacity: 1;
+}
+
+th.asc i::before {
+    content: "\f0d8"; /* fa-caret-up */
+}
+
+th.desc i::before {
+    content: "\f0d7"; /* fa-caret-down */
+}
 </style>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/js/all.min.js" crossorigin="anonymous"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const table = document.getElementById('results-table');
+    if (!table) return;
+    
+    const headers = table.querySelectorAll('th.sortable');
+    const tbody = table.querySelector('tbody');
+    let rows = Array.from(tbody.querySelectorAll('tr'));
+    
+    // Sayfalandırma değişkenleri
+    let currentPage = 1;
+    const rowsPerPage = 10;
+    let totalPages = Math.ceil(rows.length / rowsPerPage);
+    
+    // Belirli bir sayfaya git
+    const goToPage = (page) => {
+        currentPage = page;
+        
+        // Tüm satırları göster/gizle
+        rows.forEach((row, index) => {
+            if (index >= (page - 1) * rowsPerPage && index < page * rowsPerPage) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+        
+        // Sayfalandırmayı güncelle
+        createPagination();
+    };
+    
+    // Sayfalandırma butonlarını oluştur
+    const createPagination = () => {
+        // İlk önce mevcut sayfalandırma varsa kaldır
+        const oldPagination = document.getElementById('results-pagination');
+        if (oldPagination) {
+            oldPagination.remove();
+        }
+        
+        // Toplam sayfa sayısını hesapla
+        totalPages = Math.ceil(rows.length / rowsPerPage);
+        
+        if (totalPages <= 1) return; // Tek sayfa varsa sayfalandırmaya gerek yok
+        
+        const paginationNav = document.createElement('nav');
+        paginationNav.setAttribute('id', 'results-pagination');
+        paginationNav.setAttribute('aria-label', 'Sayfa navigasyonu');
+        paginationNav.classList.add('mt-3');
+        
+        const paginationUl = document.createElement('ul');
+        paginationUl.classList.add('pagination', 'justify-content-center');
+        
+        // Önceki sayfa butonu
+        const prevLi = document.createElement('li');
+        prevLi.classList.add('page-item');
+        if (currentPage === 1) prevLi.classList.add('disabled');
+        
+        const prevLink = document.createElement('a');
+        prevLink.classList.add('page-link');
+        prevLink.href = '#';
+        prevLink.innerHTML = '&laquo;';
+        prevLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (currentPage > 1) {
+                goToPage(currentPage - 1);
+            }
+        });
+        
+        prevLi.appendChild(prevLink);
+        paginationUl.appendChild(prevLi);
+        
+        // Sayfa numaraları
+        let startPage = Math.max(1, currentPage - 2);
+        let endPage = Math.min(totalPages, currentPage + 2);
+        
+        // İlk sayfa numarası 1'den çok uzaktaysa, başlangıçta "1 ..." ekle
+        if (startPage > 1) {
+            const firstLi = document.createElement('li');
+            firstLi.classList.add('page-item');
+            
+            const firstLink = document.createElement('a');
+            firstLink.classList.add('page-link');
+            firstLink.href = '#';
+            firstLink.textContent = '1';
+            firstLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                goToPage(1);
+            });
+            
+            firstLi.appendChild(firstLink);
+            paginationUl.appendChild(firstLi);
+            
+            if (startPage > 2) {
+                const ellipsisLi = document.createElement('li');
+                ellipsisLi.classList.add('page-item', 'disabled');
+                
+                const ellipsisSpan = document.createElement('span');
+                ellipsisSpan.classList.add('page-link');
+                ellipsisSpan.innerHTML = '&hellip;';
+                
+                ellipsisLi.appendChild(ellipsisSpan);
+                paginationUl.appendChild(ellipsisLi);
+            }
+        }
+        
+        // Sayfa numaralarını oluştur
+        for (let i = startPage; i <= endPage; i++) {
+            const pageLi = document.createElement('li');
+            pageLi.classList.add('page-item');
+            if (i === currentPage) pageLi.classList.add('active');
+            
+            const pageLink = document.createElement('a');
+            pageLink.classList.add('page-link');
+            pageLink.href = '#';
+            pageLink.textContent = i;
+            pageLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                goToPage(i);
+            });
+            
+            pageLi.appendChild(pageLink);
+            paginationUl.appendChild(pageLi);
+        }
+        
+        // Son sayfa numarası endPage'den çok uzaktaysa, sonda "... son" ekle
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                const ellipsisLi = document.createElement('li');
+                ellipsisLi.classList.add('page-item', 'disabled');
+                
+                const ellipsisSpan = document.createElement('span');
+                ellipsisSpan.classList.add('page-link');
+                ellipsisSpan.innerHTML = '&hellip;';
+                
+                ellipsisLi.appendChild(ellipsisSpan);
+                paginationUl.appendChild(ellipsisLi);
+            }
+            
+            const lastLi = document.createElement('li');
+            lastLi.classList.add('page-item');
+            
+            const lastLink = document.createElement('a');
+            lastLink.classList.add('page-link');
+            lastLink.href = '#';
+            lastLink.textContent = totalPages;
+            lastLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                goToPage(totalPages);
+            });
+            
+            lastLi.appendChild(lastLink);
+            paginationUl.appendChild(lastLi);
+        }
+        
+        // Sonraki sayfa butonu
+        const nextLi = document.createElement('li');
+        nextLi.classList.add('page-item');
+        if (currentPage === totalPages) nextLi.classList.add('disabled');
+        
+        const nextLink = document.createElement('a');
+        nextLink.classList.add('page-link');
+        nextLink.href = '#';
+        nextLink.innerHTML = '&raquo;';
+        nextLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (currentPage < totalPages) {
+                goToPage(currentPage + 1);
+            }
+        });
+        
+        nextLi.appendChild(nextLink);
+        paginationUl.appendChild(nextLi);
+        
+        paginationNav.appendChild(paginationUl);
+        table.parentNode.after(paginationNav);
+    };
+    
+    // Sıralama fonksiyonu
+    headers.forEach(header => {
+        header.addEventListener('click', function() {
+            const sortBy = this.getAttribute('data-sort');
+            const isAsc = this.classList.contains('asc');
+            
+            // İlk önce tüm sıralama ikonlarını sıfırla
+            headers.forEach(h => {
+                h.classList.remove('asc', 'desc');
+            });
+            
+            // Bu sütunu sıralama sınıfını ekle
+            this.classList.add(isAsc ? 'desc' : 'asc');
+            
+            // Tabloyu sırala ve sonuçları göster
+            sortTable(sortBy, !isAsc);
+        });
+    });
+    
+    function sortTable(sortBy, asc) {
+        // Tüm satırları al (görünür olsun olmasın)
+        const allRows = Array.from(tbody.querySelectorAll('tr'));
+        
+        // Sıralama fonksiyonu
+        allRows.sort((rowA, rowB) => {
+            let cellA, cellB;
+            
+            // Hücrelerdeki veri değerini al
+            if (sortBy === 'symbol') {
+                cellA = rowA.cells[0].textContent.trim();
+                cellB = rowB.cells[0].textContent.trim();
+                return asc ? cellA.localeCompare(cellB) : cellB.localeCompare(cellA);
+            } else if (sortBy === 'timeframe') {
+                cellA = rowA.cells[1].textContent.trim();
+                cellB = rowB.cells[1].textContent.trim();
+                return asc ? cellA.localeCompare(cellB) : cellB.localeCompare(cellA);
+            } else if (sortBy === 'leverage') {
+                cellA = parseFloat(rowA.cells[2].getAttribute('data-value'));
+                cellB = parseFloat(rowB.cells[2].getAttribute('data-value'));
+            } else if (sortBy === 'stop') {
+                cellA = parseFloat(rowA.cells[3].getAttribute('data-value'));
+                cellB = parseFloat(rowB.cells[3].getAttribute('data-value'));
+            } else if (sortBy === 'success') {
+                cellA = parseInt(rowA.cells[4].textContent.trim());
+                cellB = parseInt(rowB.cells[4].textContent.trim());
+            } else if (sortBy === 'fail') {
+                cellA = parseInt(rowA.cells[5].textContent.trim());
+                cellB = parseInt(rowB.cells[5].textContent.trim());
+            } else if (sortBy === 'success-rate') {
+                cellA = parseFloat(rowA.cells[6].getAttribute('data-value'));
+                cellB = parseFloat(rowB.cells[6].getAttribute('data-value'));
+            } else if (sortBy === 'balance') {
+                cellA = parseFloat(rowA.cells[7].getAttribute('data-value'));
+                cellB = parseFloat(rowB.cells[7].getAttribute('data-value'));
+            } else if (sortBy === 'profit') {
+                cellA = parseFloat(rowA.cells[8].getAttribute('data-value'));
+                cellB = parseFloat(rowB.cells[8].getAttribute('data-value'));
+            }
+            
+            // Sayısal değerler için karşılaştırma
+            if (!isNaN(cellA) && !isNaN(cellB)) {
+                return asc ? cellA - cellB : cellB - cellA;
+            }
+            
+            // Varsayılan karşılaştırma
+            return asc ? String(cellA).localeCompare(String(cellB)) : String(cellB).localeCompare(String(cellA));
+        });
+        
+        // Sıralanmış satırları tabloya ekle
+        allRows.forEach(row => {
+            tbody.appendChild(row);
+        });
+        
+        // Global rows değişkenini de güncelle ki sayfalandırma doğru çalışsın
+        rows = allRows;
+        
+        // Sayfalandırmayı güncelle
+        goToPage(1); // Sıralama sonrası ilk sayfaya dön
+    }
+    
+    // İlk sayfalandırmayı oluştur
+    goToPage(1);
+    
+    // Sayfa başına satır sayısını gösteren bir eleman ekle
+    const rowsPerPageContainer = document.createElement('div');
+    rowsPerPageContainer.classList.add('d-flex', 'justify-content-between', 'align-items-center', 'mt-3');
+    
+    const rowsPerPageLabel = document.createElement('div');
+    rowsPerPageLabel.classList.add('text-muted');
+    rowsPerPageLabel.textContent = `Toplam ${rows.length} sonuç bulundu, sayfa başına 10 sonuç gösteriliyor.`;
+    
+    rowsPerPageContainer.appendChild(rowsPerPageLabel);
+    table.parentNode.after(rowsPerPageContainer);
+});
+</script>
 {% endblock %} 

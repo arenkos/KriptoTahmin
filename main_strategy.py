@@ -164,259 +164,23 @@ def fetch_all_historical_data():
     return dataframes
 
 # Function to backtest the strategy
-def backtest_strategy(timeframe, df):
-    print(f"Backtesting {timeframe} timeframe...")
-    best_result = {
-        'leverage': 1,
-        'stop_percentage': 0.5,
-        'atr_period': 10,
-        'atr_multiplier': 3,
-        'success_rate': 0,
-        'profit_rate': 0,
-        'successful_trades': 0,
-        'unsuccessful_trades': 0,
-        'final_balance': 100,
-        'trades': []
-    }
-
-    # ATR parametreleri için aralıklar
-    atr_periods = range(5, 31, 5)  # 5'ten 30'a 5'er artışla
-    atr_multipliers = [x / 10 for x in range(10, 51, 10)]  # 1.0'dan 5.0'a 1.0 artışla
-
-    # Zaman aralığına göre işlem sıklığı kontrolü - kısa zaman aralıkları için işlem sayısını sınırla
-    min_bars_between_trades = 1
-    if timeframe.endswith('m'):
-        min_bars_between_trades = max(5, int(timeframe[:-1]) // 3)  # Dakikalık grafiklerde daha az işlem
-    elif timeframe.endswith('h'):
-        min_bars_between_trades = max(3, int(timeframe[:-1]))  # Saatlik grafiklerde daha az işlem
-    else:
-        min_bars_between_trades = 1  # Günlük/Haftalık için normal
-
-    print(f"Min bars between trades for {timeframe}: {min_bars_between_trades}")
-
-    for atr_period in atr_periods:
-        for atr_multiplier in atr_multipliers:
-            leverage = 1
-            while leverage <= 20:  # Daha makul bir kaldıraç üst sınırı
-                stop_percentage = 0.5
-                while stop_percentage <= 5:  # Daha makul bir stop loss üst sınırı
-                    bakiye = 100.0
-                    basarili = 0
-                    basarisiz = 0
-                    trades = []
-                    pozisyon_acik = False
-                    son_islem_indeksi = -min_bars_between_trades * 2  # İşlemleri sınırlamak için son işlem indeksi
-                    
-                    # Debugging için değişkenler
-                    toplam_kar_zarar = 0
-
-                    # Supertrend hesaplama
-                    close_array = np.asarray(df["close"]).astype(float)
-                    high_array = np.asarray(df["high"]).astype(float)
-                    low_array = np.asarray(df["low"]).astype(float)
-
-                    supertrend = generateSupertrend(close_array, high_array, low_array,
-                                                  atr_period=atr_period,
-                                                  atr_multiplier=atr_multiplier)
-
-                    # Trading simülasyonu
-                    for i in range(3, len(df)):
-                        try:
-                            # Minimum işlem aralığı kontrolü
-                            if i - son_islem_indeksi < min_bars_between_trades:
-                                continue
-                                
-                            son_kapanis = close_array[i - 2]
-                            onceki_kapanis = close_array[i - 3]
-                            son_supertrend = supertrend[i - 2]
-                            onceki_supertrend = supertrend[i - 3]
-
-                            # Sadece bir pozisyon açık değilse yeni sinyal alalım
-                            if not pozisyon_acik:
-                                # Long pozisyon sinyali
-                                if son_kapanis > son_supertrend and onceki_kapanis < onceki_supertrend:
-                                    giris_fiyati = float(df["open"].iloc[i])
-                                    pozisyon_tipi = "long"
-                                    pozisyon_acik = True
-                                    pozisyon_acilis_indeksi = i
-                                    son_islem_indeksi = i  # Son işlem indeksini güncelle
-                                
-                                # Short pozisyon sinyali
-                                elif son_kapanis < son_supertrend and onceki_kapanis > onceki_supertrend:
-                                    giris_fiyati = float(df["open"].iloc[i])
-                                    pozisyon_tipi = "short"
-                                    pozisyon_acik = True
-                                    pozisyon_acilis_indeksi = i
-                                    son_islem_indeksi = i  # Son işlem indeksini güncelle
-                            
-                            # Açık pozisyon varsa kontrol edelim
-                            if pozisyon_acik:
-                                # LONG pozisyon için çıkış kontrolü
-                                if pozisyon_tipi == "long":
-                                    # Stop loss kontrolü
-                                    if float(df["low"].iloc[i]) <= giris_fiyati * (1 - stop_percentage/100):
-                                        kar_zarar = -stop_percentage  # Sabit stop loss değeri
-                                        yeni_bakiye = bakiye * (1 + (kar_zarar/100) * leverage)
-                                        
-                                        if yeni_bakiye <= 0:  # Bakiye sıfırın altına inmesin
-                                            yeni_bakiye = 0.01
-                                            
-                                        bakiye = yeni_bakiye
-                                        basarisiz += 1
-                                        trades.append(kar_zarar * leverage)
-                                        toplam_kar_zarar += kar_zarar * leverage
-                                        pozisyon_acik = False
-                                        son_islem_indeksi = i  # Son işlem indeksini güncelle
-                                    
-                                    # Satış sinyali kontrolü
-                                    elif son_kapanis < son_supertrend and onceki_kapanis > onceki_supertrend:
-                                        cikis_fiyati = float(df["open"].iloc[i])
-                                        kar_zarar = ((cikis_fiyati - giris_fiyati) / giris_fiyati) * 100  # Yüzde olarak kar/zarar
-                                        yeni_bakiye = bakiye * (1 + (kar_zarar/100) * leverage)
-                                        
-                                        if yeni_bakiye <= 0:  # Bakiye sıfırın altına inmesin
-                                            yeni_bakiye = 0.01
-                                            
-                                        bakiye = yeni_bakiye
-                                        
-                                        if kar_zarar > 0:
-                                            basarili += 1
-                                        else:
-                                            basarisiz += 1
-                                            
-                                        trades.append(kar_zarar * leverage)
-                                        toplam_kar_zarar += kar_zarar * leverage
-                                        pozisyon_acik = False
-                                        son_islem_indeksi = i  # Son işlem indeksini güncelle
-                                
-                                # SHORT pozisyon için çıkış kontrolü
-                                elif pozisyon_tipi == "short":
-                                    # Stop loss kontrolü
-                                    if float(df["high"].iloc[i]) >= giris_fiyati * (1 + stop_percentage/100):
-                                        kar_zarar = -stop_percentage  # Sabit stop loss değeri
-                                        yeni_bakiye = bakiye * (1 + (kar_zarar/100) * leverage)
-                                        
-                                        if yeni_bakiye <= 0:  # Bakiye sıfırın altına inmesin
-                                            yeni_bakiye = 0.01
-                                            
-                                        bakiye = yeni_bakiye
-                                        basarisiz += 1
-                                        trades.append(kar_zarar * leverage)
-                                        toplam_kar_zarar += kar_zarar * leverage
-                                        pozisyon_acik = False
-                                        son_islem_indeksi = i  # Son işlem indeksini güncelle
-                                    
-                                    # Alış sinyali kontrolü
-                                    elif son_kapanis > son_supertrend and onceki_kapanis < onceki_supertrend:
-                                        cikis_fiyati = float(df["open"].iloc[i])
-                                        kar_zarar = ((giris_fiyati - cikis_fiyati) / giris_fiyati) * 100  # Yüzde olarak kar/zarar
-                                        yeni_bakiye = bakiye * (1 + (kar_zarar/100) * leverage)
-                                        
-                                        if yeni_bakiye <= 0:  # Bakiye sıfırın altına inmesin
-                                            yeni_bakiye = 0.01
-                                            
-                                        bakiye = yeni_bakiye
-                                        
-                                        if kar_zarar > 0:
-                                            basarili += 1
-                                        else:
-                                            basarisiz += 1
-                                            
-                                        trades.append(kar_zarar * leverage)
-                                        toplam_kar_zarar += kar_zarar * leverage
-                                        pozisyon_acik = False
-                                        son_islem_indeksi = i  # Son işlem indeksini güncelle
-                                
-                                # Eğer pozisyon çok uzun süredir açıksa zorunlu kapatma (zaman diliminin 100 katı)
-                                if i - pozisyon_acilis_indeksi > min(100, len(df) // 10):
-                                    cikis_fiyati = float(df["open"].iloc[i])
-                                    
-                                    if pozisyon_tipi == "long":
-                                        kar_zarar = ((cikis_fiyati - giris_fiyati) / giris_fiyati) * 100
-                                    else:  # short
-                                        kar_zarar = ((giris_fiyati - cikis_fiyati) / giris_fiyati) * 100
-                                    
-                                    yeni_bakiye = bakiye * (1 + (kar_zarar/100) * leverage)
-                                    
-                                    if yeni_bakiye <= 0:
-                                        yeni_bakiye = 0.01
-                                        
-                                    bakiye = yeni_bakiye
-                                    
-                                    if kar_zarar > 0:
-                                        basarili += 1
-                                    else:
-                                        basarisiz += 1
-                                        
-                                    trades.append(kar_zarar * leverage)
-                                    toplam_kar_zarar += kar_zarar * leverage
-                                    pozisyon_acik = False
-                                    son_islem_indeksi = i  # Son işlem indeksini güncelle
-
-                        except Exception as e:
-                            print(f"Error in trading simulation: {e}")
-                            continue
-
-                    # Son açık pozisyonu kapat
-                    if pozisyon_acik:
-                        cikis_fiyati = float(df["close"].iloc[-1])
-                        
-                        if pozisyon_tipi == "long":
-                            kar_zarar = ((cikis_fiyati - giris_fiyati) / giris_fiyati) * 100
-                        else:  # short
-                            kar_zarar = ((giris_fiyati - cikis_fiyati) / giris_fiyati) * 100
-                        
-                        yeni_bakiye = bakiye * (1 + (kar_zarar/100) * leverage)
-                        
-                        if yeni_bakiye <= 0:
-                            yeni_bakiye = 0.01
-                            
-                        bakiye = yeni_bakiye
-                        
-                        if kar_zarar > 0:
-                            basarili += 1
-                        else:
-                            basarisiz += 1
-                            
-                        trades.append(kar_zarar * leverage)
-                        toplam_kar_zarar += kar_zarar * leverage
-                        pozisyon_acik = False
-
-                    # Sonuçları değerlendir
-                    total_trades = basarili + basarisiz
-                    if total_trades > 0:
-                        success_rate = (basarili / total_trades) * 100
-                        profit_rate = ((bakiye / 100.0) - 1) * 100  # Doğru kar yüzdesi hesaplama
-
-                        # En iyi sonucu güncelle - sadece yeterli sayıda işlem yapıldıysa
-                        if profit_rate > best_result['profit_rate'] and total_trades >= 5:
-                            best_result.update({
-                                'leverage': leverage,
-                                'stop_percentage': stop_percentage,
-                                'atr_period': atr_period,
-                                'atr_multiplier': atr_multiplier,
-                                'success_rate': success_rate,
-                                'profit_rate': profit_rate,
-                                'successful_trades': basarili,
-                                'unsuccessful_trades': basarisiz,
-                                'final_balance': bakiye,
-                                'trades': trades
-                            })
-                            
-                            # Debug bilgisi
-                            print(f"Yeni en iyi sonuç: {timeframe}, Kaldıraç: {leverage}, Stop %: {stop_percentage}, "
-                                 f"ATR Periyot: {atr_period}, ATR Çarpan: {atr_multiplier}, "
-                                 f"Başarı Oranı: {success_rate:.2f}%, Kar: {profit_rate:.2f}%, "
-                                 f"İşlem Sayısı: {total_trades}, Bakiye: {bakiye:.2f}")
-
-                    stop_percentage += 0.5
-                leverage += 1
-
-    # Performans metriklerini hesapla
-    metrics = calculate_performance_metrics(best_result['trades'])
-    best_result.update(metrics)
+def backtest_strategy(symbol, timeframe, leverage=1, stop_percentage=2, days=30):
+    """
+    Belirli parametre setine göre stratejiyi test eden wrapper fonksiyon.
     
-    return best_result
+    Args:
+        symbol (str): Kripto para birimi sembolü (örn. "BTC")
+        timeframe (str): Zaman dilimi (örn. "1h", "4h", "1d")
+        leverage (float): Kaldıraç miktarı
+        stop_percentage (float): Stop-loss yüzdesi
+        days (int): Kaç günlük veri kullanılacağı
+    
+    Returns:
+        dict: Test sonuçları
+    """
+    # BacktestService üzerinden test et
+    result = BacktestService.backtest_strategy(symbol, timeframe, leverage, stop_percentage, days)
+    return result
 
 def calculate_performance_metrics(trades):
     """İşlem performans metriklerini hesaplar."""
@@ -650,7 +414,7 @@ def analyze_symbol(symbol, timeframe, exchange):
 
             return None
             
-        result = backtest_strategy(timeframe, df)
+        result = backtest_strategy(symbol, timeframe)
         return {
             'symbol': symbol,
             'timeframe': timeframe,

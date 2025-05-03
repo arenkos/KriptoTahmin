@@ -1,6 +1,6 @@
 import asyncio
 from config import Config
-from app.utils.notifications.telegram_bot import TelegramBot
+# from app.utils.notifications.telegram_bot import TelegramBot
 from app import create_app
 import sys
 import threading
@@ -10,8 +10,9 @@ app = create_app()
 def run_bot():
     # Telegram bot'u başlat
     try:
-        bot = TelegramBot(Config.TELEGRAM_BOT_TOKEN)
-        bot.run_polling()  # Botu başlatmak için run_polling kullanıyoruz
+        print("Telegram bot kullanımda değil.")
+        # bot = TelegramBot(Config.TELEGRAM_BOT_TOKEN)
+        # bot.run_polling()  # Botu başlatmak için run_polling kullanıyoruz
     except Exception as e:
         print(f"Telegram bot çalıştırılırken hata oluştu: {e}")
         print("Bot özelliği devre dışı bırakıldı, web uygulama normal çalışmaya devam edecek.")

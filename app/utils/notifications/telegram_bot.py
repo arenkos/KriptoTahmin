@@ -17,6 +17,11 @@ class TelegramBot:
 
         # Bot değişkeni
         self.bot = self.updater.bot
+        
+        # ParseMode test
+        print("TelegramBot sınıfı içinde ParseMode:", ParseMode)
+        print("ParseMode.MARKDOWN:", ParseMode.MARKDOWN)
+        print("ParseMode.HTML:", ParseMode.HTML)
 
     def start(self, update: Update, context: CallbackContext):
         """Send a message when the command /start is issued."""
@@ -89,7 +94,8 @@ class TelegramBot:
         
         self.bot.send_message(
             chat_id=user.telegram_chat_id,
-            text=message
+            text=message,
+            parse_mode=ParseMode.MARKDOWN  # ParseMode kullanımı örneği
         )
         
     def send_trade_update(self, user_id: int, update_info: dict):
@@ -108,8 +114,18 @@ class TelegramBot:
         
         self.bot.send_message(
             chat_id=user.telegram_chat_id,
-            text=message
+            text=message,
+            parse_mode=ParseMode.MARKDOWN  # ParseMode kullanımı örneği
         )
+    
+    # Test metodu - sadece ParseMode'un çalıştığını kontrol etmek için
+    def test_parsemode(self):
+        """ParseMode testini yapar"""
+        print("TelegramBot.test_parsemode() çalıştırılıyor")
+        print(f"ParseMode: {ParseMode}")
+        print(f"ParseMode.MARKDOWN: {ParseMode.MARKDOWN}")
+        print(f"ParseMode.HTML: {ParseMode.HTML}")
+        return True
         
     def run_polling(self):
         """Bot'u çalıştır"""

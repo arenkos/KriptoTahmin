@@ -310,31 +310,57 @@ for symbol in symbols:
     
     a = 0
     while a < ANALYSIS_DAYS:
-        df_1m = pd.concat([df_1m, adf_1m[a]], ignore_index=True)
-        df_3m = pd.concat([df_3m, adf_3m[a]], ignore_index=True)
-        df_5m = pd.concat([df_5m, adf_5m[a]], ignore_index=True)
-        df_15m = pd.concat([df_15m, adf_15m[a]], ignore_index=True)
-        df_30m = pd.concat([df_30m, adf_30m[a]], ignore_index=True)
-        df_1h = pd.concat([df_1h, adf_1h[a]], ignore_index=True)
-        df_2h = pd.concat([df_2h, adf_2h[a]], ignore_index=True)
-        df_4h = pd.concat([df_4h, adf_4h[a]], ignore_index=True)
-        df_1d = pd.concat([df_1d, adf_1d[a]], ignore_index=True)
+        # Boş DataFrame'leri kontrol et, boşsa atla
+        if isinstance(adf_1m[a], pd.DataFrame) and not adf_1m[a].empty:
+            df_1m = pd.concat([df_1m, adf_1m[a]], ignore_index=True)
+        if isinstance(adf_3m[a], pd.DataFrame) and not adf_3m[a].empty:
+            df_3m = pd.concat([df_3m, adf_3m[a]], ignore_index=True)
+        if isinstance(adf_5m[a], pd.DataFrame) and not adf_5m[a].empty:
+            df_5m = pd.concat([df_5m, adf_5m[a]], ignore_index=True)
+        if isinstance(adf_15m[a], pd.DataFrame) and not adf_15m[a].empty:
+            df_15m = pd.concat([df_15m, adf_15m[a]], ignore_index=True)
+        if isinstance(adf_30m[a], pd.DataFrame) and not adf_30m[a].empty:
+            df_30m = pd.concat([df_30m, adf_30m[a]], ignore_index=True)
+        if isinstance(adf_1h[a], pd.DataFrame) and not adf_1h[a].empty:
+            df_1h = pd.concat([df_1h, adf_1h[a]], ignore_index=True)
+        if isinstance(adf_2h[a], pd.DataFrame) and not adf_2h[a].empty:
+            df_2h = pd.concat([df_2h, adf_2h[a]], ignore_index=True)
+        if isinstance(adf_4h[a], pd.DataFrame) and not adf_4h[a].empty:
+            df_4h = pd.concat([df_4h, adf_4h[a]], ignore_index=True)
+        if isinstance(adf_1d[a], pd.DataFrame) and not adf_1d[a].empty:
+            df_1d = pd.concat([df_1d, adf_1d[a]], ignore_index=True)
         a = a + 1
     
     # Verileri veritabanına kaydet
-    save_to_db(conn, symbol, df_1m, "1m")
-    save_to_db(conn, symbol, df_3m, "3m")
-    save_to_db(conn, symbol, df_5m, "5m")
-    save_to_db(conn, symbol, df_15m, "15m")
-    save_to_db(conn, symbol, df_30m, "30m")
-    save_to_db(conn, symbol, df_1h, "1h")
-    save_to_db(conn, symbol, df_2h, "2h")
-    save_to_db(conn, symbol, df_4h, "4h")
-    save_to_db(conn, symbol, df_1d, "1d")
+    try:
+        # Boş olmayan DataFrame'leri kontrol et
+        if not df_1m.empty:
+            save_to_db(conn, symbolName[s], df_1m, "1m")
+        if not df_3m.empty:
+            save_to_db(conn, symbolName[s], df_3m, "3m")
+        if not df_5m.empty:
+            save_to_db(conn, symbolName[s], df_5m, "5m")
+        if not df_15m.empty:
+            save_to_db(conn, symbolName[s], df_15m, "15m")
+        if not df_30m.empty:
+            save_to_db(conn, symbolName[s], df_30m, "30m")
+        if not df_1h.empty:
+            save_to_db(conn, symbolName[s], df_1h, "1h")
+        if not df_2h.empty:
+            save_to_db(conn, symbolName[s], df_2h, "2h")
+        if not df_4h.empty:
+            save_to_db(conn, symbolName[s], df_4h, "4h")
+        if not df_1d.empty:
+            save_to_db(conn, symbolName[s], df_1d, "1d")
+    except Exception as e:
+        print(f"Veritabanına kaydetme hatası: {e}")
     
-    bars = exchange.fetch_ohlcv(symbol, timeframe="1w", since=None, limit=int(lim_olustur("1w")))
-    df_1w = pd.DataFrame(bars, columns=["timestamp", "open", "high", "low", "close", "volume"])
-    save_to_db(conn, symbol, df_1w, "1w")
+    try:
+        bars = exchange.fetch_ohlcv(symbol, timeframe="1w", since=None, limit=int(lim_olustur("1w")))
+        df_1w = pd.DataFrame(bars, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        save_to_db(conn, symbolName[s], df_1w, "1w")
+    except Exception as e:
+        print(f"1w veri çekme ve kaydetme hatası: {e}")
     
     
     def deneme(zamanAraligi, df):
