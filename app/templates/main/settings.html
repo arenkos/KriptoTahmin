@@ -3,7 +3,7 @@
 {% block title %}Ayarlar{% endblock %}
 
 {% block content %}
-<div class="container">
+<div class="container mt-4">
     <div class="row">
         <div class="col-md-12 mb-4">
             <h1>Ayarlar</h1>
@@ -12,105 +12,73 @@
 
     <div class="row">
         <!-- Trading Ayarları -->
-        <div class="col-md-6 mb-4">
+        <div class="col-md-6">
             <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="card-title mb-0">Trading Ayarları</h5>
-                    <a href="{{ url_for('main.param_analysis') }}" class="btn btn-sm btn-info">
-                        Parametre Analizi
-                    </a>
+                <div class="card-header">
+                    <h5 class="mb-0">Trading Ayarları</h5>
                 </div>
                 <div class="card-body">
                     <form method="POST" action="{{ url_for('main.settings') }}">
-                        {{ trading_form.csrf_token }}
-                        
+                        {{ trading_form.hidden_tag() }}
                         <div class="mb-3">
-                            <label for="symbol" class="form-label">Kripto Para Çifti</label>
-                            {{ trading_form.symbol(class="form-control") }}
-                            {% if trading_form.symbol.errors %}
-                                {% for error in trading_form.symbol.errors %}
-                                <div class="text-danger">{{ error }}</div>
-                                {% endfor %}
-                            {% endif %}
+                            {{ trading_form.symbol.label(class="form-label") }}
+                            {{ trading_form.symbol(class="form-select") }}
                         </div>
-
                         <div class="mb-3">
-                            <label for="timeframe" class="form-label">Zaman Dilimi</label>
-                            {{ trading_form.timeframe(class="form-control") }}
-                            {% if trading_form.timeframe.errors %}
-                                {% for error in trading_form.timeframe.errors %}
-                                <div class="text-danger">{{ error }}</div>
-                                {% endfor %}
-                            {% endif %}
+                            {{ trading_form.timeframe.label(class="form-label") }}
+                            {{ trading_form.timeframe(class="form-select") }}
                         </div>
-
                         <div class="mb-3">
-                            <label for="leverage" class="form-label">Kaldıraç</label>
-                            {{ trading_form.leverage(class="form-control") }}
-                            {% if trading_form.leverage.errors %}
-                                {% for error in trading_form.leverage.errors %}
-                                <div class="text-danger">{{ error }}</div>
-                                {% endfor %}
-                            {% endif %}
+                            {{ trading_form.leverage.label(class="form-label") }}
+                            {{ trading_form.leverage(class="form-control", type="number", step="0.1", min="1", max="125") }}
                         </div>
-
                         <div class="mb-3">
-                            <label for="stop_loss" class="form-label">Stop Loss (%)</label>
-                            {{ trading_form.stop_loss(class="form-control") }}
-                            {% if trading_form.stop_loss.errors %}
-                                {% for error in trading_form.stop_loss.errors %}
-                                <div class="text-danger">{{ error }}</div>
-                                {% endfor %}
-                            {% endif %}
+                            {{ trading_form.stop_loss.label(class="form-label") }}
+                            {{ trading_form.stop_loss(class="form-control", type="number", step="0.1", min="0.1", max="100") }}
                         </div>
-                        <!--
                         <div class="mb-3">
-                            <label for="take_profit" class="form-label">Take Profit (%)</label>
-                            {{ trading_form.take_profit(class="form-control") }}
-                            {% if trading_form.take_profit.errors %}
-                                {% for error in trading_form.take_profit.errors %}
-                                <div class="text-danger">{{ error }}</div>
-                                {% endfor %}
-                            {% endif %}
+                            {{ trading_form.take_profit.label(class="form-label") }}
+                            {{ trading_form.take_profit(class="form-control", type="number", step="0.1", min="0.1", max="1000") }}
                         </div>
-                        -->
-                        <button type="submit" class="btn btn-primary">Trading Ayarlarını Kaydet</button>
+                        <div class="mb-3">
+                            <div class="form-check">
+                                {{ trading_form.is_active(class="form-check-input") }}
+                                {{ trading_form.is_active.label(class="form-check-label") }}
+                            </div>
+                        </div>
+                        <div class="d-grid">
+                            {{ trading_form.submit(class="btn btn-primary") }}
+                        </div>
                     </form>
                 </div>
             </div>
         </div>
 
         <!-- API Ayarları -->
-        <div class="col-md-6 mb-4">
+        <div class="col-md-6">
             <div class="card">
                 <div class="card-header">
-                    <h5 class="card-title mb-0">API Ayarları</h5>
+                    <h5 class="mb-0">API Ayarları</h5>
                 </div>
                 <div class="card-body">
                     <form method="POST" action="{{ url_for('main.settings') }}">
-                        {{ api_form.csrf_token }}
-                        
+                        {{ api_form.hidden_tag() }}
                         <div class="mb-3">
-                            <label for="api_key" class="form-label">API Key</label>
+                            {{ api_form.api_key.label(class="form-label") }}
                             {{ api_form.api_key(class="form-control") }}
-                            {% if api_form.api_key.errors %}
-                                {% for error in api_form.api_key.errors %}
-                                <div class="text-danger">{{ error }}</div>
-                                {% endfor %}
-                            {% endif %}
                         </div>
-
                         <div class="mb-3">
-                            <label for="api_secret" class="form-label">API Secret</label>
+                            {{ api_form.api_secret.label(class="form-label") }}
                             {{ api_form.api_secret(class="form-control") }}
-                            {% if api_form.api_secret.errors %}
-                                {% for error in api_form.api_secret.errors %}
-                                <div class="text-danger">{{ error }}</div>
-                                {% endfor %}
-                            {% endif %}
                         </div>
-
-                        <button type="submit" class="btn btn-primary">API Ayarlarını Kaydet</button>
+                        <div class="mb-3">
+                            {{ api_form.balance.label(class="form-label") }}
+                            {{ api_form.balance(class="form-control", type="number", step="0.01", min="0") }}
+                            <small class="form-text text-muted">İşlem yapmak istediğiniz USDT miktarını girin</small>
+                        </div>
+                        <div class="d-grid">
+                            {{ api_form.submit(class="btn btn-primary") }}
+                        </div>
                     </form>
                 </div>
             </div>

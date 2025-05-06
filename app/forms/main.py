@@ -1,5 +1,5 @@
 from flask_wtf import FlaskForm
-from wtforms import StringField, SelectField, FloatField, SubmitField, PasswordField
+from wtforms import StringField, SelectField, FloatField, SubmitField, PasswordField, BooleanField
 from wtforms.validators import DataRequired, Optional, NumberRange, Length
 from config import Config
 
@@ -27,11 +27,12 @@ class TradingSettingsForm(FlaskForm):
                    message='Kâr al {} ile {} arasında olmalıdır.'.format(Config.MIN_TAKE_PROFIT, Config.MAX_TAKE_PROFIT))
     ], default=Config.DEFAULT_TAKE_PROFIT)
     
+    is_active = BooleanField('Aktif')
+    
     submit = SubmitField('Ayarları Kaydet')
 
 class APISettingsForm(FlaskForm):
-    api_key = StringField('API Key', validators=[Length(min=0, max=100)])
-    api_secret = PasswordField('API Secret', validators=[Length(min=0, max=100)])
-    telegram_id = StringField('Telegram ID', validators=[Length(min=0, max=20)])
-    
-    submit = SubmitField('API Ayarlarını Kaydet') 
+    api_key = StringField('Binance API Key', validators=[Optional()])
+    api_secret = StringField('Binance API Secret', validators=[Optional()])
+    balance = FloatField('İşlem Bakiyesi (USDT)', validators=[Optional(), NumberRange(min=0)])
+    submit = SubmitField('Kaydet') 

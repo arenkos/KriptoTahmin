@@ -65,103 +65,77 @@ def dashboard():
 @bp.route('/settings', methods=['GET', 'POST'])
 @login_required
 def settings():
-    trading_form = TradingSettingsForm()
     api_form = APISettingsForm()
+    trading_form = TradingSettingsForm()
     
-    # Form gönderilmediyse ve session'da kaydedilmiş veriler varsa formu doldur
-    if request.method == 'GET':
-        if 'selected_symbol' in session:
-            trading_form.symbol.data = session.get('selected_symbol')
-            trading_form.timeframe.data = session.get('selected_timeframe')
-            trading_form.leverage.data = session.get('selected_leverage')
-            trading_form.stop_loss.data = session.get('selected_stop_loss')
-            trading_form.take_profit.data = session.get('selected_take_profit')
-            
-            # Session verileri bir kez kullanıldıktan sonra temizle
-            session.pop('selected_symbol', None)
-            session.pop('selected_timeframe', None)
-            session.pop('selected_leverage', None)
-            session.pop('selected_stop_loss', None)
-            session.pop('selected_take_profit', None)
-        else:
-            # Session'da veri yoksa, kullanıcının aktif ayarlarını yükle
-            active_settings = TradingSettings.query.filter_by(
-                user_id=current_user.id,
-                is_active=True
-            ).first()
-            
-            if active_settings:
-                trading_form.symbol.data = active_settings.symbol
-                trading_form.timeframe.data = active_settings.timeframe
-                trading_form.leverage.data = active_settings.leverage
-                trading_form.stop_loss.data = active_settings.stop_loss
-                trading_form.take_profit.data = active_settings.take_profit
-        
-        # API ayarlarını doldur
-        if current_user.api_key:
-            api_form.api_key.data = current_user.api_key
-            api_form.api_secret.data = current_user.api_secret
+    # Form seçeneklerini doldur
+    trading_form.symbol.choices = [(s, s) for s in SUPPORTED_SYMBOLS]
+    trading_form.timeframe.choices = [(t, t) for t in TIMEFRAMES]
     
-    if trading_form.validate_on_submit():
-        # Update or create trading settings
-        settings = TradingSettings.query.filter_by(
-            user_id=current_user.id,
-            symbol=trading_form.symbol.data,
-            timeframe=trading_form.timeframe.data
-        ).first()
-        
-        if settings:
-            settings.leverage = trading_form.leverage.data
-            settings.stop_loss = trading_form.stop_loss.data
-            settings.take_profit = trading_form.take_profit.data
-            settings.is_active = True  # Aktif ayarı olarak işaretle
-        else:
-            settings = TradingSettings(
+    if request.method == 'POST':
+        if api_form.validate_on_submit():
+            current_user.api_key = api_form.api_key.data
+            current_user.api_secret = api_form.api_secret.data
+            current_user.balance = api_form.balance.data
+            db.session.commit()
+            flash('API ayarları başarıyla kaydedildi', 'success')
+            return redirect(url_for('main.settings'))
+            
+        elif trading_form.validate_on_submit():
+            # Mevcut ayarları kontrol et
+            existing_settings = TradingSettings.query.filter_by(
                 user_id=current_user.id,
                 symbol=trading_form.symbol.data,
-                timeframe=trading_form.timeframe.data,
-                leverage=trading_form.leverage.data,
-                stop_loss=trading_form.stop_loss.data,
-                take_profit=trading_form.take_profit.data,
-                is_active=True  # Aktif ayarı olarak işaretle
-            )
-            db.session.add(settings)
+                timeframe=trading_form.timeframe.data
+            ).first()
             
-        db.session.commit()
-        
-        # Trade bot'u hemen çalıştır
-        try:
-            import subprocess
-            import sys
-            subprocess.Popen([sys.executable, "trade.py"])
-            flash('Trading ayarları güncellendi ve trade bot yeniden başlatıldı', 'success')
-        except Exception as e:
-            current_app.logger.error(f"Trade bot başlatılırken hata: {e}")
-            flash('Trading ayarları güncellendi fakat trade bot başlatılamadı', 'warning')
+            if existing_settings:
+                # Mevcut ayarları güncelle
+                existing_settings.leverage = trading_form.leverage.data
+                existing_settings.stop_loss = trading_form.stop_loss.data
+                existing_settings.take_profit = trading_form.take_profit.data
+                existing_settings.is_active = trading_form.is_active.data
+                existing_settings.updated_at = datetime.utcnow()
+            else:
+                # Yeni ayarlar oluştur
+                new_settings = TradingSettings(
+                    user_id=current_user.id,
+                    symbol=trading_form.symbol.data,
+                    timeframe=trading_form.timeframe.data,
+                    leverage=trading_form.leverage.data,
+                    stop_loss=trading_form.stop_loss.data,
+                    take_profit=trading_form.take_profit.data,
+                    is_active=trading_form.is_active.data
+                )
+                db.session.add(new_settings)
             
-        return redirect(url_for('main.settings'))
+            db.session.commit()
+            flash('Trading ayarları başarıyla kaydedildi', 'success')
+            return redirect(url_for('main.settings'))
+    
+    # Mevcut ayarları forma doldur
+    if request.method == 'GET':
+        api_form.api_key.data = current_user.api_key
+        api_form.api_secret.data = current_user.api_secret
+        api_form.balance.data = current_user.balance
         
-    if api_form.validate_on_submit():
-        # Update API settings
-        current_user.api_key = api_form.api_key.data
-        current_user.api_secret = api_form.api_secret.data
-        db.session.commit()
+        # Son aktif trading ayarlarını al
+        last_settings = TradingSettings.query.filter_by(
+            user_id=current_user.id,
+            is_active=True
+        ).order_by(TradingSettings.updated_at.desc()).first()
         
-        # Trade bot'u hemen çalıştır (API bilgileri değiştiği için)
-        try:
-            import subprocess
-            import sys
-            subprocess.Popen([sys.executable, "trade.py"])
-            flash('API ayarları güncellendi ve trade bot yeniden başlatıldı', 'success')
-        except Exception as e:
-            current_app.logger.error(f"Trade bot başlatılırken hata: {e}")
-            flash('API ayarları güncellendi fakat trade bot başlatılamadı', 'warning')
-            
-        return redirect(url_for('main.settings'))
-        
-    return render_template('main/settings.html',
-                         trading_form=trading_form,
-                         api_form=api_form)
+        if last_settings:
+            trading_form.symbol.data = last_settings.symbol
+            trading_form.timeframe.data = last_settings.timeframe
+            trading_form.leverage.data = last_settings.leverage
+            trading_form.stop_loss.data = last_settings.stop_loss
+            trading_form.take_profit.data = last_settings.take_profit
+            trading_form.is_active.data = last_settings.is_active
+    
+    return render_template('main/settings.html', 
+                         api_form=api_form,
+                         trading_form=trading_form)
 
 @bp.route('/analyze/<symbol>/<timeframe>')
 @login_required

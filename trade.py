@@ -11,6 +11,14 @@ from telegram import Bot
 import os
 import threading
 import traceback
+from app import create_app
+from app.models.database import db, User, TradingSettings
+import websocket
+import json
+import threading
+from binance.client import Client
+from binance.websockets import BinanceSocketManager
+from concurrent.futures import ThreadPoolExecutor
 
 # --- Logging ayarları ---
 logging.basicConfig(
@@ -32,6 +40,254 @@ atr_multiplier = 3      # Supertrend ATR çarpanı
 
 # --- Telegram settings ---
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+
+# --- WebSocket ayarları ---
+BINANCE_API_KEY = os.environ.get('BINANCE_API_KEY', '')
+BINANCE_API_SECRET = os.environ.get('BINANCE_API_SECRET', '')
+
+# Desteklenen semboller ve zaman dilimleri
+SYMBOLS = [
+    "BTC/USDT", "ETH/USDT", "BNB/USDT", "XRP/USDT", "ADA/USDT",
+    "DOGE/USDT", "SOL/USDT", "DOT/USDT", "AVAX/USDT", "1000SHIB/USDT",
+    "LINK/USDT", "UNI/USDT", "ATOM/USDT", "LTC/USDT", "ETC/USDT"
+]
+
+TIMEFRAMES = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w"]
+
+class TradingStrategy:
+    def __init__(self, symbol, timeframe):
+        self.symbol = symbol
+        self.timeframe = timeframe
+        self.conn = sqlite3.connect(db_name)
+        self.cursor = self.conn.cursor()
+        self.last_signal = None
+        self.last_check_time = 0
+        
+    def check_signals(self):
+        """Belirli bir sembol ve timeframe için sinyal kontrolü yap"""
+        try:
+            current_time = time.time()
+            # Her timeframe için uygun kontrol aralığı
+            check_interval = {
+                "1m": 60,
+                "3m": 180,
+                "5m": 300,
+                "15m": 900,
+                "30m": 1800,
+                "1h": 3600,
+                "2h": 7200,
+                "4h": 14400,
+                "1d": 86400,
+                "1w": 604800
+            }
+            
+            # Son kontrol zamanından bu yana yeterli süre geçmediyse kontrol etme
+            if current_time - self.last_check_time < check_interval[self.timeframe]:
+                return
+                
+            self.last_check_time = current_time
+            
+            # Son 100 mumu al
+            self.cursor.execute('''
+            SELECT timestamp, open, high, low, close, volume
+            FROM ohlcv_data
+            WHERE symbol = ? AND timeframe = ?
+            ORDER BY timestamp DESC
+            LIMIT 100
+            ''', (self.symbol, self.timeframe))
+            
+            rows = self.cursor.fetchall()
+            if not rows:
+                return
+                
+            # DataFrame oluştur
+            df = pd.DataFrame(rows, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            
+            # Teknik analiz göstergelerini hesapla
+            df['ATR'] = ta.ATR(df['high'], df['low'], df['close'], timeperiod=atr_period)
+            df['Supertrend'] = generateSupertrend(df['close'], df['high'], df['low'], atr_period, atr_multiplier)
+            
+            # Son sinyali kontrol et
+            current_signal = None
+            if df['Supertrend'].iloc[-1] > df['close'].iloc[-1]:
+                current_signal = 'SELL'
+            elif df['Supertrend'].iloc[-1] < df['close'].iloc[-1]:
+                current_signal = 'BUY'
+                
+            # Sinyal değiştiyse bildirim gönder
+            if current_signal and current_signal != self.last_signal:
+                signal = {
+                    'symbol': self.symbol,
+                    'timeframe': self.timeframe,
+                    'signal': current_signal,
+                    'price': df['close'].iloc[-1],
+                    'timestamp': df['timestamp'].iloc[-1]
+                }
+                notify_users(signal)
+                self.last_signal = current_signal
+                
+        except Exception as e:
+            logger.error(f"Sinyal kontrolü hatası ({self.symbol} {self.timeframe}): {str(e)}")
+            
+    def close(self):
+        """Veritabanı bağlantısını kapat"""
+        if self.conn:
+            self.conn.close()
+
+class WebSocketManager:
+    def __init__(self):
+        self.client = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
+        self.bm = BinanceSocketManager(self.client)
+        self.conn = None
+        self.cursor = None
+        self.strategies = {}
+        self.timeframe_executors = {}
+        self.initialize_database()
+        
+    def initialize_database(self):
+        """Veritabanı bağlantısını başlat ve tabloları oluştur"""
+        self.conn = sqlite3.connect(db_name)
+        self.cursor = self.conn.cursor()
+        
+        # OHLCV tablosunu oluştur
+        self.cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ohlcv_data (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT,
+            timeframe TEXT,
+            timestamp INTEGER,
+            open REAL,
+            high REAL,
+            low REAL,
+            close REAL,
+            volume REAL,
+            UNIQUE(symbol, timeframe, timestamp)
+        )
+        ''')
+        
+        # İndeksler oluştur
+        self.cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_symbol_timeframe 
+        ON ohlcv_data(symbol, timeframe)
+        ''')
+        
+        self.conn.commit()
+        
+    def process_kline_data(self, msg):
+        """WebSocket'ten gelen kline verilerini işle"""
+        try:
+            if msg['e'] == 'error':
+                logger.error(f"WebSocket hatası: {msg}")
+                return
+                
+            kline = msg['k']
+            symbol = kline['s']
+            timeframe = kline['i']
+            timestamp = kline['t']
+            open_price = float(kline['o'])
+            high_price = float(kline['h'])
+            low_price = float(kline['l'])
+            close_price = float(kline['c'])
+            volume = float(kline['v'])
+            
+            # Veritabanına kaydet
+            self.cursor.execute('''
+            INSERT OR REPLACE INTO ohlcv_data 
+            (symbol, timeframe, timestamp, open, high, low, close, volume)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (symbol, timeframe, timestamp, open_price, high_price, 
+                  low_price, close_price, volume))
+            
+            self.conn.commit()
+            
+        except Exception as e:
+            logger.error(f"Kline verisi işleme hatası: {str(e)}")
+            
+    def start_strategies(self):
+        """Tüm stratejileri başlat"""
+        # Her timeframe için ayrı bir thread havuzu oluştur
+        for timeframe in TIMEFRAMES:
+            # Her timeframe için maksimum 5 thread kullan
+            self.timeframe_executors[timeframe] = ThreadPoolExecutor(max_workers=5)
+            
+        # Sembolleri timeframe'lere dağıt
+        for symbol in SYMBOLS:
+            symbol = symbol.replace('/', '').lower()
+            for timeframe in TIMEFRAMES:
+                strategy = TradingStrategy(symbol, timeframe)
+                self.strategies[f"{symbol}_{timeframe}"] = strategy
+                # Her stratejiyi kendi timeframe'inin thread havuzuna gönder
+                self.timeframe_executors[timeframe].submit(self.run_strategy, strategy)
+                
+    def run_strategy(self, strategy):
+        """Stratejiyi sürekli çalıştır"""
+        while True:
+            try:
+                strategy.check_signals()
+                time.sleep(1)  # CPU kullanımını azaltmak için kısa bekleme
+            except Exception as e:
+                logger.error(f"Strateji çalıştırma hatası ({strategy.symbol} {strategy.timeframe}): {str(e)}")
+                time.sleep(5)  # Hata durumunda biraz daha uzun bekle
+                
+    def start(self):
+        """WebSocket bağlantılarını başlat"""
+        try:
+            # Her sembol ve timeframe için kline stream başlat
+            for symbol in SYMBOLS:
+                symbol = symbol.replace('/', '').lower()
+                for timeframe in TIMEFRAMES:
+                    # Binance timeframe formatına dönüştür
+                    binance_timeframe = timeframe
+                    if timeframe == '1m':
+                        binance_timeframe = '1m'
+                    elif timeframe == '3m':
+                        binance_timeframe = '3m'
+                    elif timeframe == '5m':
+                        binance_timeframe = '5m'
+                    elif timeframe == '15m':
+                        binance_timeframe = '15m'
+                    elif timeframe == '30m':
+                        binance_timeframe = '30m'
+                    elif timeframe == '1h':
+                        binance_timeframe = '1h'
+                    elif timeframe == '2h':
+                        binance_timeframe = '2h'
+                    elif timeframe == '4h':
+                        binance_timeframe = '4h'
+                    elif timeframe == '1d':
+                        binance_timeframe = '1d'
+                    elif timeframe == '1w':
+                        binance_timeframe = '1w'
+                        
+                    # Kline stream başlat
+                    self.bm.start_kline_socket(
+                        f"{symbol}@{binance_timeframe}",
+                        self.process_kline_data
+                    )
+                    
+            # WebSocket manager'ı başlat
+            self.bm.start()
+            
+            # Stratejileri başlat
+            self.start_strategies()
+            
+        except Exception as e:
+            logger.error(f"WebSocket başlatma hatası: {str(e)}")
+            
+    def stop(self):
+        """WebSocket bağlantılarını kapat"""
+        try:
+            self.bm.close()
+            # Tüm thread havuzlarını kapat
+            for executor in self.timeframe_executors.values():
+                executor.shutdown(wait=True)
+            # Tüm stratejileri kapat
+            for strategy in self.strategies.values():
+                strategy.close()
+            if self.conn:
+                self.conn.close()
+        except Exception as e:
+            logger.error(f"WebSocket kapatma hatası: {str(e)}")
 
 # --- DATABASE FUNCTIONS ---
 def get_user_settings():
@@ -342,29 +598,188 @@ def process_user_data(user_settings):
     else:
         logger.info(f"No trading signal for {symbol} {timeframe} at this time")
 
+def get_signal(symbol, timeframe):
+    """Belirli bir sembol ve timeframe için sinyal üret"""
+    try:
+        # OHLCV verilerini al
+        conn = sqlite3.connect(db_name)
+        cursor = conn.cursor()
+        
+        query = '''
+        SELECT timestamp, open, high, low, close, volume
+        FROM ohlcv_data
+        WHERE symbol = ? AND timeframe = ?
+        ORDER BY timestamp DESC
+        LIMIT 100
+        '''
+        
+        cursor.execute(query, (symbol, timeframe))
+        rows = cursor.fetchall()
+        conn.close()
+        
+        if not rows:
+            return None
+            
+        # Veriyi DataFrame'e dönüştür
+        df = pd.DataFrame(rows, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        
+        # Teknik analiz göstergelerini hesapla
+        df['ATR'] = ta.ATR(df['high'], df['low'], df['close'], timeperiod=atr_period)
+        df['Supertrend'] = generateSupertrend(df['close'], df['high'], df['low'], atr_period, atr_multiplier)
+        
+        # Son sinyali kontrol et
+        last_signal = None
+        if df['Supertrend'].iloc[-1] > df['close'].iloc[-1]:
+            last_signal = 'SELL'
+        elif df['Supertrend'].iloc[-1] < df['close'].iloc[-1]:
+            last_signal = 'BUY'
+            
+        return {
+            'symbol': symbol,
+            'timeframe': timeframe,
+            'signal': last_signal,
+            'price': df['close'].iloc[-1],
+            'timestamp': df['timestamp'].iloc[-1]
+        }
+    except Exception as e:
+        logger.error(f"Sinyal üretme hatası: {str(e)}")
+        return None
+
+def notify_users(signal):
+    """Sinyali alan kullanıcılara bildirim gönder"""
+    if not signal:
+        return
+        
+    app = create_app()
+    with app.app_context():
+        # Sinyal ile eşleşen kullanıcı ayarlarını bul
+        matching_settings = TradingSettings.query.filter_by(
+            symbol=signal['symbol'],
+            timeframe=signal['timeframe'],
+            is_active=True
+        ).all()
+        
+        bot = Bot(token=TELEGRAM_BOT_TOKEN)
+        
+        for setting in matching_settings:
+            user = User.query.get(setting.user_id)
+            if not user or not user.telegram_chat_id:
+                continue
+                
+            # Mesaj oluştur
+            message = (
+                f"🚨 Yeni Sinyal!\n"
+                f"Sembol: {signal['symbol']}\n"
+                f"Zaman Dilimi: {signal['timeframe']}\n"
+                f"Sinyal: {signal['signal']}\n"
+                f"Fiyat: {signal['price']}\n"
+                f"Kaldıraç: {setting.leverage}x\n"
+                f"Stop Loss: %{setting.stop_loss}\n"
+                f"Take Profit: %{setting.take_profit}"
+            )
+            
+            try:
+                bot.send_message(chat_id=user.telegram_chat_id, text=message)
+                
+                # Eğer API bilgileri varsa işlem yap
+                if user.api_key and user.api_secret and user.balance > 0:
+                    execute_trade(user, signal, setting)
+                    
+            except Exception as e:
+                logger.error(f"Bildirim gönderme hatası: {str(e)}")
+
+def execute_trade(user, signal, settings):
+    """Binance üzerinde işlem yap"""
+    try:
+        # Binance API bağlantısı
+        exchange = ccxt.binance({
+            'apiKey': user.api_key,
+            'secret': user.api_secret,
+            'enableRateLimit': True
+        })
+        
+        # İşlem miktarını hesapla (bakiye * kaldıraç)
+        amount = user.balance * settings.leverage
+        
+        if signal['signal'] == 'BUY':
+            # Alış işlemi
+            order = exchange.create_market_buy_order(
+                symbol=signal['symbol'],
+                amount=amount
+            )
+            
+            # Stop loss ve take profit emirlerini yerleştir
+            stop_price = order['price'] * (1 - settings.stop_loss/100)
+            take_profit_price = order['price'] * (1 + settings.take_profit/100)
+            
+            exchange.create_order(
+                symbol=signal['symbol'],
+                type='stop_loss_limit',
+                side='sell',
+                amount=amount,
+                price=stop_price,
+                params={'stopPrice': stop_price}
+            )
+            
+            exchange.create_order(
+                symbol=signal['symbol'],
+                type='limit',
+                side='sell',
+                amount=amount,
+                price=take_profit_price
+            )
+            
+        elif signal['signal'] == 'SELL':
+            # Satış işlemi
+            order = exchange.create_market_sell_order(
+                symbol=signal['symbol'],
+                amount=amount
+            )
+            
+            # Stop loss ve take profit emirlerini yerleştir
+            stop_price = order['price'] * (1 + settings.stop_loss/100)
+            take_profit_price = order['price'] * (1 - settings.take_profit/100)
+            
+            exchange.create_order(
+                symbol=signal['symbol'],
+                type='stop_loss_limit',
+                side='buy',
+                amount=amount,
+                price=stop_price,
+                params={'stopPrice': stop_price}
+            )
+            
+            exchange.create_order(
+                symbol=signal['symbol'],
+                type='limit',
+                side='buy',
+                amount=amount,
+                price=take_profit_price
+            )
+            
+    except Exception as e:
+        logger.error(f"İşlem hatası: {str(e)}")
+
 # --- MAIN EXECUTION ---
 def main():
+    """Ana döngü"""
     try:
-        logger.info("Starting trading bot...")
+        logger.info("Trading bot başlatılıyor...")
         
-        # Kullanıcı ayarlarını çek
-        user_settings_list = get_user_settings()
+        # WebSocket manager'ı başlat
+        ws_manager = WebSocketManager()
+        ws_manager.start()
         
-        if not user_settings_list:
-            logger.info("No active user settings found. Exiting.")
-            return
-        
-        logger.info(f"Found {len(user_settings_list)} active user settings")
-        
-        # Her kullanıcı için trading işlemlerini yürüt
-        for user_settings in user_settings_list:
-            process_user_data(user_settings)
-        
-        logger.info("Trading bot cycle completed successfully")
-    
+        # Ana döngüyü çalıştır
+        while True:
+            time.sleep(1)
+            
+    except KeyboardInterrupt:
+        logger.info("Trading bot durduruluyor...")
+        ws_manager.stop()
     except Exception as e:
-        logger.error(f"Error in main execution: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"Ana döngü hatası: {str(e)}")
+        ws_manager.stop()
 
 if __name__ == "__main__":
     main()
