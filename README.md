@@ -2,6 +2,13 @@
 
 Bu proje, kripto para piyasalarında otomatik alım-satım yapabilen ve teknik analiz gerçekleştiren bir sistemdir.
 
+## Docker Hızlı Başlangıç
+
+```bash
+docker build -t kripto_app:latest .
+docker run -it --network=host -v /mnt/dbvolume/crypto_data.db:/home/user/KriptoTahmin/crypto_data.db -v /mnt/dbvolume/app.db:/home/user/KriptoTahmin/ain/app.db kripto_app:latest python3 host.py --host 0.0.0.0
+```
+
 ## Özellikler
 
 - Çoklu kripto para desteği
