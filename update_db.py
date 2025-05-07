@@ -20,19 +20,36 @@ timeframes = {
 def create_db_connection():
     conn = sqlite3.connect('crypto_data.db')
     cursor = conn.cursor()
+    
+    # Önce mevcut tabloyu yedekle
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ohlcv_data_backup AS 
+        SELECT * FROM ohlcv_data
+    ''')
+    
+    # Eski tabloyu sil
+    cursor.execute('DROP TABLE IF EXISTS ohlcv_data')
+    
+    # Yeni tabloyu UNIQUE constraint ile oluştur
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS ohlcv_data (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol TEXT,
-            timestamp INTEGER,
-            timeframe TEXT,
-            open REAL,
-            high REAL,
-            low REAL,
-            close REAL,
-            volume REAL
+            symbol TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            timeframe TEXT NOT NULL,
+            open REAL NOT NULL,
+            high REAL NOT NULL,
+            low REAL NOT NULL,
+            close REAL NOT NULL,
+            volume REAL NOT NULL,
+            UNIQUE(symbol, timeframe, timestamp)
         )
     ''')
+    
+    # İndeksler oluştur
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_symbol_timeframe ON ohlcv_data(symbol, timeframe)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_timestamp ON ohlcv_data(timestamp)')
+    
     conn.commit()
     return conn
 
@@ -60,10 +77,15 @@ def get_last_timestamp(conn, symbol, timeframe):
 def insert_ohlcv_data(conn, symbol, timeframe, data):
     cursor = conn.cursor()
     for row in data:
-        cursor.execute('''
-            INSERT INTO ohlcv_data (symbol, timestamp, timeframe, open, high, low, close, volume)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (symbol, row[0], timeframe, row[1], row[2], row[3], row[4], row[5]))
+        try:
+            cursor.execute('''
+                INSERT OR REPLACE INTO ohlcv_data 
+                (symbol, timestamp, timeframe, open, high, low, close, volume)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (symbol, row[0], timeframe, row[1], row[2], row[3], row[4], row[5]))
+        except sqlite3.IntegrityError:
+            # Tekrarlanan kayıt varsa atla
+            continue
     conn.commit()
 
 # --- Tüm verileri çek ve kaydet ---
@@ -97,5 +119,5 @@ def update_data():
     conn.close()
     print("\n✅ Tüm veriler başarıyla güncellendi.")
 
-# --- Çalıştır ---
-update_data()
+if __name__ == "__main__":
+    update_data()

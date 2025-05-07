@@ -366,6 +366,17 @@ def param_analysis():
         conn.row_factory = sqlite3.Row  # Sonuçları sözlük olarak al
         cursor = conn.cursor()
         
+        # analysis_results tablosunun varlığını kontrol et
+        cursor.execute('''
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name='analysis_results'
+        ''')
+        
+        if not cursor.fetchone():
+            conn.close()
+            return render_template('main/param_analysis.html', 
+                                error="Analiz sonuçları bulunamadı. Lütfen önce analiz işlemini çalıştırın.")
+        
         # Verileri sorgula
         cursor.execute('''
         SELECT * FROM analysis_results ORDER BY final_balance DESC
