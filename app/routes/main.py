@@ -437,8 +437,9 @@ def apply_settings():
     timeframe = request.args.get('timeframe')
     leverage = float(request.args.get('leverage', 1))
     stop_percentage = float(request.args.get('stop_percentage', 1))
+    kar_al_percentage = float(request.args.get('kar_al_percentage', 2))
     
-    if not all([symbol, timeframe, leverage, stop_percentage]):
+    if not all([symbol, timeframe, leverage, stop_percentage, kar_al_percentage]):
         flash('Gerekli parametreler eksik', 'error')
         return redirect(url_for('main.param_analysis'))
     
@@ -458,7 +459,7 @@ def apply_settings():
     if settings:
         settings.leverage = leverage
         settings.stop_loss = stop_percentage
-        settings.take_profit = stop_percentage  # Take profit için de aynı değeri kullan
+        settings.take_profit = kar_al_percentage
         settings.is_active = True  # Bu ayarı aktif olarak işaretle
     else:
         settings = TradingSettings(
@@ -467,7 +468,7 @@ def apply_settings():
             timeframe=timeframe,
             leverage=leverage,
             stop_loss=stop_percentage,
-            take_profit=stop_percentage,  # Take profit için de aynı değeri kullan
+            take_profit=kar_al_percentage,
             is_active=True  # Bu ayarı aktif olarak işaretle
         )
         db.session.add(settings)
@@ -489,6 +490,6 @@ def apply_settings():
     session['selected_timeframe'] = timeframe
     session['selected_leverage'] = leverage
     session['selected_stop_loss'] = stop_percentage
-    session['selected_take_profit'] = stop_percentage
+    session['selected_take_profit'] = kar_al_percentage
     
     return redirect(url_for('main.settings')) 
