@@ -542,7 +542,7 @@ for symbol in symbols:
                                     break
 
                                 # Kar alma durumu
-                                if ((float(df["low"][x + y]) - giris) / giris * 100 >= kar_al * (-1)):
+                                if ((float(df["low"][x + y]) - giris) / giris * 100 >= kar_al * (-1)) and kar_al != 0:
                                     basarili = basarili + 1
                                     bakiye = bakiye + bakiye * kar_al / 100 * leverage
                                     kar_stop = 1
@@ -626,7 +626,7 @@ for symbol in symbols:
                                     break
 
                                 # Kar alma durumu
-                                if ((float(df["high"][x + y]) - giris) / giris * 100 <= kar_al):
+                                if ((float(df["high"][x + y]) - giris) / giris * 100 <= kar_al) and kar_al != 0:
                                     basarili = basarili + 1
                                     bakiye = bakiye + bakiye * yuzde / 100 * leverage
                                     kar_stop = 1
