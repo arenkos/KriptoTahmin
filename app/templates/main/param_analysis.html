@@ -52,6 +52,8 @@
                             <th class="sortable" data-sort="leverage">Kaldıraç <i class="fa-solid fa-sort"></i></th>
                             <th class="sortable" data-sort="stop">Stop Yüzdesi <i class="fa-solid fa-sort"></i></th>
                             <th class="sortable" data-sort="kar_al">Kar Al Yüzdesi <i class="fa-solid fa-sort"></i></th>
+                            <th class="sortable" data-sort="atr_period">ATR Periyodu <i class="fa-solid fa-sort"></i></th>
+                            <th class="sortable" data-sort="atr_multiplier">ATR Çarpanı <i class="fa-solid fa-sort"></i></th>
                             <th class="sortable" data-sort="success">Başarılı İşlemler <i class="fa-solid fa-sort"></i></th>
                             <th class="sortable" data-sort="fail">Başarısız İşlemler <i class="fa-solid fa-sort"></i></th>
                             <th class="sortable" data-sort="success-rate">Başarı Oranı (%) <i class="fa-solid fa-sort"></i></th>
@@ -68,6 +70,8 @@
                             <td data-value="{{ result.leverage }}">{{ result.leverage }}x</td>
                             <td data-value="{{ result.stop_percentage }}">%{{ result.stop_percentage }}</td>
                             <td data-value="{{ result.kar_al_percentage }}">%{{ result.kar_al_percentage }}</td>
+                            <td data-value="{{ result.atr_period }}">{{ result.atr_period }}</td>
+                            <td data-value="{{ result.atr_multiplier }}">{{ result.atr_multiplier }}</td>
                             <td>{{ result.successful_trades }}</td>
                             <td>{{ result.unsuccessful_trades }}</td>
                             <td data-value="{{ (result.successful_trades / (result.successful_trades + result.unsuccessful_trades) * 100) if (result.successful_trades + result.unsuccessful_trades) > 0 else 0 }}">
@@ -131,6 +135,14 @@
                                         <tr>
                                             <th>Kar Al Yüzdesi:</th>
                                             <td>%{{ best_result.kar_al_percentage }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>ATR Periyodu:</th>
+                                            <td>{{ best_result.atr_period }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>ATR Çarpanı:</th>
+                                            <td>{{ best_result.atr_multiplier }}</td>
                                         </tr>
                                         <tr>
                                             <th>Başarılı/Başarısız:</th>
@@ -452,21 +464,27 @@ document.addEventListener('DOMContentLoaded', function() {
             } else if (sortBy === 'kar_al') {
                 cellA = parseFloat(rowA.cells[4].getAttribute('data-value'));
                 cellB = parseFloat(rowB.cells[4].getAttribute('data-value'));
+            } else if (sortBy === 'atr_period') {
+                cellA = parseFloat(rowA.cells[5].getAttribute('data-value'));
+                cellB = parseFloat(rowB.cells[5].getAttribute('data-value'));
+            } else if (sortBy === 'atr_multiplier') {
+                cellA = parseFloat(rowA.cells[6].getAttribute('data-value'));
+                cellB = parseFloat(rowB.cells[6].getAttribute('data-value'));
             } else if (sortBy === 'success') {
-                cellA = parseInt(rowA.cells[5].textContent.trim());
-                cellB = parseInt(rowB.cells[5].textContent.trim());
+                cellA = parseInt(rowA.cells[7].textContent.trim());
+                cellB = parseInt(rowB.cells[7].textContent.trim());
             } else if (sortBy === 'fail') {
-                cellA = parseInt(rowA.cells[6].textContent.trim());
-                cellB = parseInt(rowB.cells[6].textContent.trim());
+                cellA = parseInt(rowA.cells[8].textContent.trim());
+                cellB = parseInt(rowB.cells[8].textContent.trim());
             } else if (sortBy === 'success-rate') {
-                cellA = parseFloat(rowA.cells[7].getAttribute('data-value'));
-                cellB = parseFloat(rowB.cells[7].getAttribute('data-value'));
-            } else if (sortBy === 'balance') {
-                cellA = parseFloat(rowA.cells[8].getAttribute('data-value'));
-                cellB = parseFloat(rowB.cells[8].getAttribute('data-value'));
-            } else if (sortBy === 'profit') {
                 cellA = parseFloat(rowA.cells[9].getAttribute('data-value'));
                 cellB = parseFloat(rowB.cells[9].getAttribute('data-value'));
+            } else if (sortBy === 'balance') {
+                cellA = parseFloat(rowA.cells[10].getAttribute('data-value'));
+                cellB = parseFloat(rowB.cells[10].getAttribute('data-value'));
+            } else if (sortBy === 'profit') {
+                cellA = parseFloat(rowA.cells[11].getAttribute('data-value'));
+                cellB = parseFloat(rowB.cells[11].getAttribute('data-value'));
             }
             
             // Sayısal değerler için karşılaştırma
