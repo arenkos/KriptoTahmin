@@ -543,7 +543,7 @@ for symbol in symbols:
                                             break
 
                                         # Stop olma durumu
-                                        if ((float(df["high"][x + y]) - giris) / giris * 100 >= yuzde):
+                                        if ((float(df["high"][x + y]) - giris) / giris * 100 >= yuzde) and yuzde != 0:
                                             basarili = basarili + 1
                                             bakiye = bakiye - bakiye * yuzde / 100 * leverage
                                             stop = 1
@@ -627,7 +627,7 @@ for symbol in symbols:
                                             break
 
                                         # Stop olma durumu
-                                        if ((float(df["low"][x + y]) - giris) / giris * 100 <= yuzde * (-1)):
+                                        if ((float(df["low"][x + y]) - giris) / giris * 100 <= yuzde * (-1)) and yuzde != 0:
                                             basarili = basarili + 1
                                             bakiye = bakiye - bakiye * yuzde / 100 * leverage
                                             stop = 1
