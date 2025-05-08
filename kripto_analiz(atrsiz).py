@@ -35,40 +35,25 @@ symbolName = [
 def create_db_connection():
     conn = sqlite3.connect('crypto_data.db')
     cursor = conn.cursor()
-
-    # Gerekli tabloları oluşturma
+    
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS ohlcv_data (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        symbol TEXT,
-        timestamp INTEGER,
-        timeframe TEXT,
-        open REAL,
-        high REAL,
-        low REAL,
-        close REAL,
-        volume REAL
-    )
-    ''')
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS analysis_results (
+    CREATE TABLE IF NOT EXISTS analysis_results_no_atr (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         symbol TEXT NOT NULL,
         timeframe TEXT NOT NULL,
         leverage REAL NOT NULL,
         stop_percentage REAL NOT NULL,
         kar_al_percentage REAL NOT NULL,
-        atr_period INTEGER NOT NULL,
-        atr_multiplier REAL NOT NULL,
         successful_trades INTEGER NOT NULL,
         unsuccessful_trades INTEGER NOT NULL,
         final_balance REAL NOT NULL,
+        success_rate REAL NOT NULL,
+        optimization_type TEXT NOT NULL,  -- 'balance' veya 'success_rate'
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(symbol, timeframe)
+        UNIQUE(symbol, timeframe, optimization_type)
     )
     ''')
-
+    
     conn.commit()
     return conn
 
@@ -94,27 +79,30 @@ def save_to_db(conn, symbol, df, timeframe):
 
 
 # Analiz sonuçlarını veritabanına kaydetme
-def save_results_to_db(symbol, timeframe, leverage, stop_percentage, kar_al_percentage, atr_period, atr_multiplier,
-                       successful_trades, unsuccessful_trades, final_balance):
+def save_results_to_db(symbol, timeframe, leverage, stop_percentage, kar_al_percentage, 
+                      successful_trades, unsuccessful_trades, final_balance, optimization_type='balance'):
     try:
         conn = sqlite3.connect('crypto_data.db')
         cursor = conn.cursor()
-
+        
+        total_trades = successful_trades + unsuccessful_trades
+        success_rate = (successful_trades / total_trades * 100) if total_trades > 0 else 0
+        
         # Önce eski sonucu sil
         cursor.execute('''
-        DELETE FROM analysis_results 
-        WHERE symbol = ? AND timeframe = ?
-        ''', (symbol, timeframe))
-
+        DELETE FROM analysis_results_no_atr 
+        WHERE symbol = ? AND timeframe = ? AND optimization_type = ?
+        ''', (symbol, timeframe, optimization_type))
+        
         # Yeni sonucu ekle
         cursor.execute('''
-        INSERT INTO analysis_results 
-        (symbol, timeframe, leverage, stop_percentage, kar_al_percentage, atr_period, atr_multiplier, successful_trades, unsuccessful_trades, final_balance)
+        INSERT INTO analysis_results_no_atr 
+        (symbol, timeframe, leverage, stop_percentage, kar_al_percentage, 
+         successful_trades, unsuccessful_trades, final_balance, success_rate, optimization_type)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-        symbol, timeframe, leverage, stop_percentage, kar_al_percentage, atr_period, atr_multiplier, successful_trades,
-        unsuccessful_trades, final_balance))
-
+        ''', (symbol, timeframe, leverage, stop_percentage, kar_al_percentage,
+              successful_trades, unsuccessful_trades, final_balance, success_rate, optimization_type))
+        
         conn.commit()
     except Exception as e:
         print(f"Veritabanı hatası: {str(e)}")
@@ -385,8 +373,6 @@ for symbol in symbols:
 
     def deneme(zamanAraligi, df):
         print("Supertrend ve Hacim BOT\n\n")
-        alinacak_miktar = 0
-        bekleme = 0
         bakiye = 100.0
         leverage_ust = 50
         lev_ust = 50
@@ -395,89 +381,26 @@ for symbol in symbols:
         yuz_ust = 50
         kar_ust = 50
         islemsonu = [[0 for x in range(yuz_ust * 2 + 1)] for y in range(lev_ust + 1)]
-        son = 0
-        islem = 0
-        basarili = 0
         basarili_islem = [[0 for x in range(yuz_ust * 2 + 1)] for y in range(lev_ust + 1)]
-        basarisiz = 0
         basarisiz_islem = [[0 for x in range(yuz_ust * 2 + 1)] for y in range(lev_ust + 1)]
-        yuzde = 0.5
-        sonuclar = []
-        tahmin = []
-
-        lim = int(len(df["open"]))
-
-        kesisim = False
-        longPozisyonda = False
-        shortPozisyonda = False
-        pozisyondami = False
-        likit = 0
-        yuzde = 0
-        kar_al = 0
-        a = 0
-
-        def generateSupertrend(close_array, high_array, low_array, atr_period, atr_multiplier):
-            try:
-                atr = ta.ATR(high_array, low_array, close_array, atr_period)
-            except ccxt.BaseError as Error:
-                print("[ERROR] ", Error)
-
-            previous_final_upperband = 0
-            previous_final_lowerband = 0
-            final_upperband = 0
-            final_lowerband = 0
-            previous_close = 0
-            previous_supertrend = 0
-            supertrend = []
-            supertrendc = 0
-
-            for i in range(0, len(close_array)):
-                if np.isnan(close_array[i]):
-                    pass
-                else:
-                    highc = high_array[i]
-                    lowc = low_array[i]
-                    atrc = atr[i]
-                    closec = close_array[i]
-
-                    if math.isnan(atrc):
-                        atrc = 0
-
-                    basic_upperband = (highc + lowc) / 2 + atr_multiplier * atrc
-                    basic_lowerband = (highc + lowc) / 2 - atr_multiplier * atrc
-
-                    if basic_upperband < previous_final_upperband or previous_close > previous_final_upperband:
-                        final_upperband = basic_upperband
-                    else:
-                        final_upperband = previous_final_upperband
-
-                    if basic_lowerband > previous_final_lowerband or previous_close < previous_final_lowerband:
-                        final_lowerband = basic_lowerband
-                    else:
-                        final_lowerband = previous_final_lowerband
-
-                    if previous_supertrend == previous_final_upperband and closec <= final_upperband:
-                        supertrendc = final_upperband
-                    else:
-                        if previous_supertrend == previous_final_upperband and closec >= final_upperband:
-                            supertrendc = final_lowerband
-                        else:
-                            if previous_supertrend == previous_final_lowerband and closec >= final_lowerband:
-                                supertrendc = final_lowerband
-                            elif previous_supertrend == previous_final_lowerband and closec <= final_lowerband:
-                                supertrendc = final_upperband
-
-                    supertrend.append(supertrendc)
-
-                    previous_close = closec
-
-                    previous_final_upperband = final_upperband
-
-                    previous_final_lowerband = final_lowerband
-
-                    previous_supertrend = supertrendc
-
-            return supertrend
+        
+        en_iyi_bakiye = {
+            'leverage': 0,
+            'yuzde': 0,
+            'basarili': 0,
+            'basarisiz': 0,
+            'bakiye': 0,
+            'basari_orani': 0
+        }
+        
+        en_iyi_oran = {
+            'leverage': 0,
+            'yuzde': 0,
+            'basarili': 0,
+            'basarisiz': 0,
+            'bakiye': 0,
+            'basari_orani': 0
+        }
 
         opn = df["open"]
         high = df["high"]
@@ -772,6 +695,52 @@ for symbol in symbols:
                 atr_multiplier = atr_multiplier + 0.5
             atr_period = atr_period + 1
 
+        # Her iterasyonda en iyi sonuçları güncelle
+        for leverage in range(lev_ust):
+            for k in range(len(islemsonu[leverage])):
+                bakiye = islemsonu[leverage][k]
+                basarili = basarili_islem[leverage][k]
+                basarisiz = basarisiz_islem[leverage][k]
+                toplam_islem = basarili + basarisiz
+                basari_orani = (basarili / toplam_islem * 100) if toplam_islem > 0 else 0
+                
+                # En yüksek bakiyeye göre güncelle
+                if bakiye > en_iyi_bakiye['bakiye']:
+                    en_iyi_bakiye = {
+                        'leverage': leverage + 1,
+                        'yuzde': k / 2,
+                        'basarili': basarili,
+                        'basarisiz': basarisiz,
+                        'bakiye': bakiye,
+                        'basari_orani': basari_orani
+                    }
+                
+                # En yüksek başarı oranına göre güncelle
+                # Minimum işlem sayısı kontrolü (en az 10 işlem)
+                if toplam_islem >= 10 and basari_orani > en_iyi_oran['basari_orani']:
+                    en_iyi_oran = {
+                        'leverage': leverage + 1,
+                        'yuzde': k / 2,
+                        'basarili': basarili,
+                        'basarisiz': basarisiz,
+                        'bakiye': bakiye,
+                        'basari_orani': basari_orani
+                    }
+        
+        return [
+            # Bakiyeye göre en iyi sonuç
+            (str(en_iyi_bakiye['leverage']), 
+             str(en_iyi_bakiye['yuzde']), 
+             en_iyi_bakiye['basarili'], 
+             en_iyi_bakiye['basarisiz'], 
+             str(en_iyi_bakiye['bakiye'])),
+            # Başarı oranına göre en iyi sonuç
+            (str(en_iyi_oran['leverage']), 
+             str(en_iyi_oran['yuzde']), 
+             en_iyi_oran['basarili'], 
+             en_iyi_oran['basarisiz'], 
+             str(en_iyi_oran['bakiye']))
+        ]
 
     m1 = deneme("1m", df_1m)
     m3 = deneme("3m", df_3m)
@@ -784,93 +753,99 @@ for symbol in symbols:
     d1 = deneme("1d", df_1d)
     w1 = deneme("1w", df_1w)
 
-    lev_1m = m1[0]
-    lev_3m = m3[0]
-    lev_5m = m5[0]
-    lev_15m = m15[0]
-    lev_30m = m30[0]
-    lev_1h = h1[0]
-    lev_2h = h2[0]
-    lev_4h = h4[0]
-    lev_1d = d1[0]
-    lev_1w = w1[0]
+    lev_1m = m1[0][0]
+    lev_3m = m3[0][0]
+    lev_5m = m5[0][0]
+    lev_15m = m15[0][0]
+    lev_30m = m30[0][0]
+    lev_1h = h1[0][0]
+    lev_2h = h2[0][0]
+    lev_4h = h4[0][0]
+    lev_1d = d1[0][0]
+    lev_1w = w1[0][0]
 
-    yuz_1m = m1[1]
-    yuz_3m = m3[1]
-    yuz_5m = m5[1]
-    yuz_15m = m15[1]
-    yuz_30m = m30[1]
-    yuz_1h = h1[1]
-    yuz_2h = h2[1]
-    yuz_4h = h4[1]
-    yuz_1d = d1[1]
-    yuz_1w = w1[1]
+    yuz_1m = m1[0][1]
+    yuz_3m = m3[0][1]
+    yuz_5m = m5[0][1]
+    yuz_15m = m15[0][1]
+    yuz_30m = m30[0][1]
+    yuz_1h = h1[0][1]
+    yuz_2h = h2[0][1]
+    yuz_4h = h4[0][1]
+    yuz_1d = d1[0][1]
+    yuz_1w = w1[0][1]
 
-    kar_yuz_1m = m1[1]
-    kar_yuz_3m = m3[1]
-    kar_yuz_5m = m5[1]
-    kar_yuz_15m = m15[1]
-    kar_yuz_30m = m30[1]
-    kar_yuz_1h = h1[1]
-    kar_yuz_2h = h2[1]
-    kar_yuz_4h = h4[1]
-    kar_yuz_1d = d1[1]
-    kar_yuz_1w = w1[1]
+    kar_yuz_1m = m1[0][1]
+    kar_yuz_3m = m3[0][1]
+    kar_yuz_5m = m5[0][1]
+    kar_yuz_15m = m15[0][1]
+    kar_yuz_30m = m30[0][1]
+    kar_yuz_1h = h1[0][1]
+    kar_yuz_2h = h2[0][1]
+    kar_yuz_4h = h4[0][1]
+    kar_yuz_1d = d1[0][1]
+    kar_yuz_1w = w1[0][1]
 
-    bli_1m = m1[2]
-    bli_3m = m3[2]
-    bli_5m = m5[2]
-    bli_15m = m15[2]
-    bli_30m = m30[2]
-    bli_1h = h1[2]
-    bli_2h = h2[2]
-    bli_4h = h4[2]
-    bli_1d = d1[2]
-    bli_1w = w1[2]
+    bli_1m = m1[0][2]
+    bli_3m = m3[0][2]
+    bli_5m = m5[0][2]
+    bli_15m = m15[0][2]
+    bli_30m = m30[0][2]
+    bli_1h = h1[0][2]
+    bli_2h = h2[0][2]
+    bli_4h = h4[0][2]
+    bli_1d = d1[0][2]
+    bli_1w = w1[0][2]
 
-    bsiz_1m = m1[3]
-    bsiz_3m = m3[3]
-    bsiz_5m = m5[3]
-    bsiz_15m = m15[3]
-    bsiz_30m = m30[3]
-    bsiz_1h = h1[3]
-    bsiz_2h = h2[3]
-    bsiz_4h = h4[3]
-    bsiz_1d = d1[3]
-    bsiz_1w = w1[3]
+    bsiz_1m = m1[0][3]
+    bsiz_3m = m3[0][3]
+    bsiz_5m = m5[0][3]
+    bsiz_15m = m15[0][3]
+    bsiz_30m = m30[0][3]
+    bsiz_1h = h1[0][3]
+    bsiz_2h = h2[0][3]
+    bsiz_4h = h4[0][3]
+    bsiz_1d = d1[0][3]
+    bsiz_1w = w1[0][3]
 
-    bky_1m = m1[4]
-    bky_3m = m3[4]
-    bky_5m = m5[4]
-    bky_15m = m15[4]
-    bky_30m = m30[4]
-    bky_1h = h1[4]
-    bky_2h = h2[4]
-    bky_4h = h4[4]
-    bky_1d = d1[4]
-    bky_1w = w1[4]
+    bky_1m = m1[0][4]
+    bky_3m = m3[0][4]
+    bky_5m = m5[0][4]
+    bky_15m = m15[0][4]
+    bky_30m = m30[0][4]
+    bky_1h = h1[0][4]
+    bky_2h = h2[0][4]
+    bky_4h = h4[0][4]
+    bky_1d = d1[0][4]
+    bky_1w = w1[0][4]
 
     # Analiz sonuçlarını veritabanına kaydet
-    save_results_to_db(symbolName[s], "1m", float(lev_1m), float(yuz_1m), float(kar_yuz_1m), bli_1m, bsiz_1m,
-                       float(bky_1m))
-    save_results_to_db(symbolName[s], "3m", float(lev_3m), float(yuz_3m), float(kar_yuz_3m), bli_3m, bsiz_3m,
-                       float(bky_3m))
-    save_results_to_db(symbolName[s], "5m", float(lev_5m), float(yuz_5m), float(kar_yuz_5m), bli_5m, bsiz_5m,
-                       float(bky_5m))
-    save_results_to_db(symbolName[s], "15m", float(lev_15m), float(yuz_15m), float(kar_yuz_15m), bli_15m, bsiz_15m,
-                       float(bky_15m))
-    save_results_to_db(symbolName[s], "30m", float(lev_30m), float(yuz_30m), float(kar_yuz_30m), bli_30m, bsiz_30m,
-                       float(bky_30m))
-    save_results_to_db(symbolName[s], "1h", float(lev_1h), float(yuz_1h), float(kar_yuz_1h), bli_1h, bsiz_1h,
-                       float(bky_1h))
-    save_results_to_db(symbolName[s], "2h", float(lev_2h), float(yuz_2h), float(kar_yuz_2h), bli_2h, bsiz_2h,
-                       float(bky_2h))
-    save_results_to_db(symbolName[s], "4h", float(lev_4h), float(yuz_4h), float(kar_yuz_4h), bli_4h, bsiz_4h,
-                       float(bky_4h))
-    save_results_to_db(symbolName[s], "1d", float(lev_1d), float(yuz_1d), float(kar_yuz_1d), bli_1d, bsiz_1d,
-                       float(bky_1d))
-    save_results_to_db(symbolName[s], "1w", float(lev_1w), float(yuz_1w), float(kar_yuz_1w), bli_1w, bsiz_1w,
-                       float(bky_1w))
+    save_results_to_db(symbolName[s], "1m", float(lev_1m), float(yuz_1m), float(kar_yuz_1m), 
+                      bli_1m, bsiz_1m, float(bky_1m), 'balance')
+    save_results_to_db(symbolName[s], "1m", float(m1[1][0]), float(m1[1][1]), float(m1[1][1]), 
+                      m1[1][2], m1[1][3], float(m1[1][4]), 'success_rate')
+    save_results_to_db(symbolName[s], "3m", float(lev_3m), float(yuz_3m), float(kar_yuz_3m), 
+                      bli_3m, bsiz_3m, float(bky_3m), 'balance')
+    save_results_to_db(symbolName[s], "3m", float(m3[1][0]), float(m3[1][1]), float(m3[1][1]), 
+                      m3[1][2], m3[1][3], float(m3[1][4]), 'success_rate')
+    save_results_to_db(symbolName[s], "5m", float(lev_5m), float(yuz_5m), float(kar_yuz_5m), 
+                      bli_5m, bsiz_5m, float(bky_5m), 'balance')
+    save_results_to_db(symbolName[s], "15m", float(lev_15m), float(yuz_15m), float(kar_yuz_15m), 
+                      bli_15m, bsiz_15m, float(bky_15m), 'balance')
+    save_results_to_db(symbolName[s], "30m", float(lev_30m), float(yuz_30m), float(kar_yuz_30m), 
+                      bli_30m, bsiz_30m, float(bky_30m), 'balance')
+    save_results_to_db(symbolName[s], "1h", float(lev_1h), float(yuz_1h), float(kar_yuz_1h), 
+                      bli_1h, bsiz_1h, float(bky_1h), 'balance')
+    save_results_to_db(symbolName[s], "2h", float(lev_2h), float(yuz_2h), float(kar_yuz_2h), 
+                      bli_2h, bsiz_2h, float(bky_2h), 'balance')
+    save_results_to_db(symbolName[s], "4h", float(lev_4h), float(yuz_4h), float(kar_yuz_4h), 
+                      bli_4h, bsiz_4h, float(bky_4h), 'balance')
+    save_results_to_db(symbolName[s], "1d", float(lev_1d), float(yuz_1d), float(kar_yuz_1d), 
+                      bli_1d, bsiz_1d, float(bky_1d), 'balance')
+    save_results_to_db(symbolName[s], "1w", float(lev_1w), float(yuz_1w), float(kar_yuz_1w), 
+                      bli_1w, bsiz_1w, float(bky_1w), 'balance')
+    save_results_to_db(symbolName[s], "1w", float(m1[1][0]), float(m1[1][1]), float(m1[1][1]), 
+                      m1[1][2], m1[1][3], float(m1[1][4]), 'success_rate')
 
     print("1m Kaldıraç = " + str(lev_1m) + " Yüzde = " + str(yuz_1m) + " Başarılı İşlem = " + str(
         bli_1m) + " Başarısız İşlem = " + str(bsiz_1m) + " İşlem Sonu Bakiye = " + str(bky_1m) + "\n")
