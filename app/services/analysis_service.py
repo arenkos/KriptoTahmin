@@ -11,7 +11,7 @@ class AnalysisService:
         cursor = conn.cursor()
         
         query = '''
-        SELECT symbol, leverage, stop_percentage, successful_trades, unsuccessful_trades, final_balance
+        SELECT symbol, leverage, stop_percentage, kar_al_percentage, successful_trades, unsuccessful_trades, final_balance
         FROM analysis_results
         WHERE timeframe = ?
         ORDER BY final_balance DESC
@@ -30,11 +30,12 @@ class AnalysisService:
                 'symbol': row[0],
                 'leverage': row[1],
                 'stop_percentage': row[2],
-                'successful_trades': row[3],
-                'unsuccessful_trades': row[4],
-                'final_balance': row[5],
-                'success_rate': row[3] / (row[3] + row[4]) * 100 if (row[3] + row[4]) > 0 else 0,
-                'profit_rate': (row[5] - 100) / 100 * 100 if row[5] > 0 else -100
+                'kar_al_percentage': row[3],
+                'successful_trades': row[4],
+                'unsuccessful_trades': row[5],
+                'final_balance': row[6],
+                'success_rate': row[4] / (row[4] + row[5]) * 100 if (row[4] + row[5]) > 0 else 0,
+                'profit_rate': (row[6] - 100) / 100 * 100 if row[6] > 0 else -100
             }
             results.append(result)
         
@@ -47,7 +48,7 @@ class AnalysisService:
         cursor = conn.cursor()
         
         query = '''
-        SELECT symbol, timeframe, leverage, stop_percentage, successful_trades, unsuccessful_trades, final_balance
+        SELECT symbol, timeframe, leverage, stop_percentage, kar_al_percentage, successful_trades, unsuccessful_trades, final_balance
         FROM analysis_results
         ORDER BY final_balance DESC
         LIMIT 10
@@ -67,11 +68,12 @@ class AnalysisService:
                 'timeframe': row[1],
                 'leverage': row[2],
                 'stop_percentage': row[3],
-                'successful_trades': row[4],
-                'unsuccessful_trades': row[5],
-                'final_balance': row[6],
-                'success_rate': row[4] / (row[4] + row[5]) * 100 if (row[4] + row[5]) > 0 else 0,
-                'profit_rate': (row[6] - 100) / 100 * 100 if row[6] > 0 else -100
+                'kar_al_percentage': row[4],
+                'successful_trades': row[5],
+                'unsuccessful_trades': row[6],
+                'final_balance': row[7],
+                'success_rate': row[5] / (row[5] + row[6]) * 100 if (row[5] + row[6]) > 0 else 0,
+                'profit_rate': (row[7] - 100) / 100 * 100 if row[7] > 0 else -100
             }
             results.append(result)
         
