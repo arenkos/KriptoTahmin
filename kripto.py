@@ -3,7 +3,7 @@ import ccxt
 import pandas as pd
 import numpy as np
 from datetime import datetime
-import talib as ta
+import ta
 import math
 import sqlite3
 import requests
