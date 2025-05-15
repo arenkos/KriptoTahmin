@@ -382,9 +382,69 @@ for symbol in symbols:
         save_to_db(conn, symbolName[s], df_1w, "1w")
     except Exception as e:
         print(f"1w veri çekme ve kaydetme hatası: {e}")
-    
-    
-    def deneme(zamanAraligi, df):
+
+
+    def generateSupertrend(close_array, high_array, low_array, atr_period, atr_multiplier):
+        try:
+            atr = ta.ATR(high_array, low_array, close_array, atr_period)
+        except Exception as Error:
+            print("[ERROR] ", Error)
+
+        previous_final_upperband = 0
+        previous_final_lowerband = 0
+        final_upperband = 0
+        final_lowerband = 0
+        previous_close = 0
+        previous_supertrend = 0
+        supertrend = []
+        supertrendc = 0
+
+        for i in range(0, len(close_array)):
+            if np.isnan(close_array[i]):
+                pass
+            else:
+                highc = high_array[i]
+                lowc = low_array[i]
+                atrc = atr[i]
+                closec = close_array[i]
+
+                if math.isnan(atrc):
+                    atrc = 0
+
+                basic_upperband = (highc + lowc) / 2 + atr_multiplier * atrc
+                basic_lowerband = (highc + lowc) / 2 - atr_multiplier * atrc
+
+                if basic_upperband < previous_final_upperband or previous_close > previous_final_upperband:
+                    final_upperband = basic_upperband
+                else:
+                    final_upperband = previous_final_upperband
+
+                if basic_lowerband > previous_final_lowerband or previous_close < previous_final_lowerband:
+                    final_lowerband = basic_lowerband
+                else:
+                    final_lowerband = previous_final_lowerband
+
+                if previous_supertrend == previous_final_upperband and closec <= final_upperband:
+                    supertrendc = final_upperband
+                else:
+                    if previous_supertrend == previous_final_upperband and closec >= final_upperband:
+                        supertrendc = final_lowerband
+                    else:
+                        if previous_supertrend == previous_final_lowerband and closec >= final_lowerband:
+                            supertrendc = final_lowerband
+                        elif previous_supertrend == previous_final_lowerband and closec <= final_lowerband:
+                            supertrendc = final_upperband
+
+                supertrend.append(supertrendc)
+
+                previous_close = closec
+                previous_final_upperband = final_upperband
+                previous_final_lowerband = final_lowerband
+                previous_supertrend = supertrendc
+
+        return supertrend
+
+    def deneme(zamanAraligi, df, lim):
         print("Supertrend ve Hacim BOT\n\n")
         bakiye = 100.0
         leverage_ust = 50
@@ -429,6 +489,7 @@ for symbol in symbols:
         low_array = low_array.astype(float)
         atr_period = 1
         atr_multiplier = 0.5
+        tahmin = []
         while atr_period < 30:
             while atr_multiplier < 10:
                 supertrend = generateSupertrend(close_array, high_array, low_array, atr_period=atr_period, atr_multiplier=atr_multiplier)
@@ -699,16 +760,16 @@ for symbol in symbols:
                 atr_multiplier = atr_multiplier + 0.5
             atr_period = atr_period + 1
     
-    m1 = deneme("1m", df_1m)
-    m3 = deneme("3m", df_3m)
-    m5 = deneme("5m", df_5m)
-    m15 = deneme("15m", df_15m)
-    m30 = deneme("30m", df_30m)
-    h1 = deneme("1h", df_1h)
-    h2 = deneme("2h", df_2h)
-    h4 = deneme("4h", df_4h)
-    d1 = deneme("1d", df_1d)
-    w1 = deneme("1w", df_1w)
+    m1 = deneme("1m", df_1m, len(df_1m))
+    m3 = deneme("3m", df_3m, len(df_3m))
+    m5 = deneme("5m", df_5m, len(df_5m))
+    m15 = deneme("15m", df_15m, len(df_15m))
+    m30 = deneme("30m", df_30m, len(df_30m))
+    h1 = deneme("1h", df_1h, len(df_1h))
+    h2 = deneme("2h", df_2h, len(df_2h))
+    h4 = deneme("4h", df_4h, len(df_4h))
+    d1 = deneme("1d", df_1d, len(df_1d))
+    w1 = deneme("1w", df_1w, len(df_1w))
     
     lev_1m = m1[0]
     lev_3m = m3[0]
