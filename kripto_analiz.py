@@ -352,6 +352,7 @@ def backtest_strategy(df, atr_period, atr_multiplier):
                 likit = 0
                 basarili = 0
                 basarisiz = 0
+                a = 0
 
                 # Ana işlem döngüsü
                 while x < len(close_array):

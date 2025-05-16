@@ -564,6 +564,7 @@ async def main():
                                 islem = 0
                                 basarili = 0
                                 basarisiz = 0
+                                a = 0
                                 # Supertrend indikatörü ve hacim kullanılarak girilen işlemler ana kısım
                                 while x < lim:
                                     depo = 0

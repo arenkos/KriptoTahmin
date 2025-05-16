@@ -504,7 +504,7 @@ for symbol in symbols:
                         kar_stop = 0
                         likit = 0
                         leverage = 1
-
+                        a = 0
                         # Kaldıraç döngüsü
                         while leverage <= leverage_ust:
                             bakiye = 100.0
