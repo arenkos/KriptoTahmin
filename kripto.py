@@ -70,6 +70,20 @@ def create_db_connection():
     cursor = conn.cursor()
 
     cursor.execute('''
+    CREATE TABLE IF NOT EXISTS ohlcv_data (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT,
+        timestamp INTEGER,
+        timeframe TEXT,
+        open REAL,
+        high REAL,
+        low REAL,
+        close REAL,
+        volume REAL
+    )
+    ''')
+
+    cursor.execute('''
     CREATE TABLE IF NOT EXISTS analysis_results_no_atr (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         symbol TEXT NOT NULL,
@@ -223,6 +237,18 @@ async def main():
         print(f"Bitiş Tarihi: {datetime.fromtimestamp(end_date / 1000).strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"Toplam {ANALYSIS_DAYS} gün için veri çekilecek\n")
 
+        # Boş DataFrame'leri oluştur
+        df_1m = pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+        df_3m = pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+        df_5m = pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+        df_15m = pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+        df_30m = pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+        df_1h = pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+        df_2h = pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+        df_4h = pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+        df_1d = pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+        df_1w = pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+
         # Dizileri doğru boyutlandır
         adf_1m = [[0 for x in range(1441)] for y in range(ANALYSIS_DAYS)]
         adf_3m = [[0 for x in range(481)] for y in range(ANALYSIS_DAYS)]
@@ -371,11 +397,46 @@ async def main():
         except Exception as e:
             print(f"1w veri çekme ve kaydetme hatası: {e}")
 
+        def calculateATR(high_array, low_array, close_array, period):
+            """
+            Manuel ATR (Average True Range) hesaplama fonksiyonu
+            """
+            atr = []
+            tr_list = []
+            
+            for i in range(len(close_array)):
+                if i == 0:
+                    # İlk eleman için True Range sadece High - Low
+                    tr = high_array[i] - low_array[i]
+                else:
+                    # Diğer elemanlar için True Range hesabı
+                    tr1 = high_array[i] - low_array[i]
+                    tr2 = abs(high_array[i] - close_array[i-1])
+                    tr3 = abs(low_array[i] - close_array[i-1])
+                    tr = max(tr1, tr2, tr3)
+                
+                tr_list.append(tr)
+                
+                if i < period:
+                    # İlk period-1 eleman için ATR hesabı yapılmaz
+                    atr.append(float('nan'))
+                elif i == period:
+                    # period. eleman için ilk ATR hesabı (basit ortalama)
+                    atr.append(sum(tr_list[:period]) / period)
+                else:
+                    # Diğer elemanlar için ATR hesabı (Wilder's smoothing method)
+                    atr.append(((period - 1) * atr[-1] + tr) / period)
+            
+            return atr
+
         def generateSupertrend(close_array, high_array, low_array, atr_period, atr_multiplier):
             try:
-                atr = ta.ATR(high_array, low_array, close_array, atr_period)
+                # ta modülü yerine kendi ATR hesaplama fonksiyonumuzu kullanıyoruz
+                atr = calculateATR(high_array, low_array, close_array, atr_period)
             except Exception as Error:
                 print("[ERROR] ", Error)
+                # Hata durumunda boş bir liste döndür
+                return [0] * len(close_array)
 
             previous_final_upperband = 0
             previous_final_lowerband = 0
@@ -437,7 +498,9 @@ async def main():
             leverage_ust = 50
             lev_ust = 50
             yuzde_ust = 50
+            yuzde = 0
             kar_al_ust = 50
+            kar_al = 0
             yuz_ust = 50
             kar_ust = 50
             islemsonu = [[0 for x in range(yuz_ust * 2 + 1)] for y in range(lev_ust + 1)]
@@ -481,7 +544,9 @@ async def main():
                 if atr_multiplier == 3:
                     supertrend = generateSupertrend(close_array, high_array, low_array, atr_period=atr_period,
                                                     atr_multiplier=atr_multiplier)
+                    kar_al = 0
                     while kar_al < kar_al_ust:
+                        yuzde = 0
                         # Yüzde döngüsü
                         while yuzde <= yuzde_ust:
                             stop = 0

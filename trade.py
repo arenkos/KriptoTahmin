@@ -648,7 +648,7 @@ def get_signal(symbol, timeframe):
 def notify_users(signal):
     """Sinyali alan kullanıcılara bildirim gönder"""
     if not signal:
-        return
+            return
         
     app = create_app()
     with app.app_context():
@@ -680,7 +680,7 @@ def notify_users(signal):
             
             try:
                 bot.send_message(chat_id=user.telegram_chat_id, text=message)
-                
+        
                 # Eğer API bilgileri varsa işlem yap
                 if user.api_key and user.api_secret and user.balance > 0:
                     execute_trade(user, signal, setting)
@@ -756,7 +756,7 @@ def execute_trade(user, signal, settings):
                 amount=amount,
                 price=take_profit_price
             )
-            
+    
     except Exception as e:
         logger.error(f"İşlem hatası: {str(e)}")
 

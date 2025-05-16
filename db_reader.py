@@ -2,14 +2,14 @@ import sqlite3
 import pandas as pd
 
 def get_db_connection():
-    conn = sqlite3.connect('crypto_data.db')
+conn = sqlite3.connect('crypto_data.db')
     return conn
 
 def find_duplicates():
     conn = get_db_connection()
-    
+
     # Tekrarlanan kayıtları bul
-    query = """
+query = """
     SELECT symbol, timeframe, timestamp, COUNT(*) as tekrar_sayisi
     FROM ohlcv_data
     GROUP BY symbol, timeframe, timestamp
@@ -27,7 +27,7 @@ def find_duplicates():
         for _, row in duplicates.iterrows():
             detail_query = """
             SELECT *
-            FROM ohlcv_data
+FROM ohlcv_data
             WHERE symbol = ? AND timeframe = ? AND timestamp = ?
             ORDER BY id
             """
@@ -42,7 +42,7 @@ def find_duplicates():
 def clean_duplicates():
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     # Tekrarlanan kayıtları temizle
     query = """
     DELETE FROM ohlcv_data
@@ -56,7 +56,7 @@ def clean_duplicates():
     cursor.execute(query)
     deleted_count = cursor.rowcount
     conn.commit()
-    conn.close()
+conn.close()
     
     print(f"\n{deleted_count} adet tekrarlanan kayıt temizlendi.")
 

@@ -314,7 +314,9 @@ def backtest_strategy(df, atr_period, atr_multiplier):
     bakiye = 100.0
     leverage_ust = 50
     yuzde_ust = 50
+    yuzde = 0
     kar_al_ust = 50
+    kar_al = 0
     basarili = 0
     basarisiz = 0
     en_iyi_sonuc = {

@@ -450,7 +450,9 @@ for symbol in symbols:
         leverage_ust = 50
         lev_ust = 50
         yuzde_ust = 50
+        yuzde = 0
         kar_al_ust = 50
+        kar_al = 0
         yuz_ust = 50
         kar_ust = 50
         islemsonu = [[0 for x in range(yuz_ust * 2 + 1)] for y in range(lev_ust + 1)]
@@ -493,8 +495,10 @@ for symbol in symbols:
         while atr_period < 30:
             while atr_multiplier < 10:
                 supertrend = generateSupertrend(close_array, high_array, low_array, atr_period=atr_period, atr_multiplier=atr_multiplier)
+                kar_al = 0
                 while kar_al < kar_al_ust:
-                # Yüzde döngüsü
+                    yuzde = 0
+                    # Yüzde döngüsü
                     while yuzde <= yuzde_ust:
                         stop = 0
                         kar_stop = 0

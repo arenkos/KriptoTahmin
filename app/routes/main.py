@@ -84,11 +84,11 @@ def settings():
         elif trading_form.validate_on_submit():
             # Mevcut ayarları kontrol et
             existing_settings = TradingSettings.query.filter_by(
-                user_id=current_user.id,
-                symbol=trading_form.symbol.data,
-                timeframe=trading_form.timeframe.data
-            ).first()
-            
+            user_id=current_user.id,
+            symbol=trading_form.symbol.data,
+            timeframe=trading_form.timeframe.data
+        ).first()
+        
             if existing_settings:
                 # Mevcut ayarları güncelle
                 existing_settings.leverage = trading_form.leverage.data
@@ -96,23 +96,23 @@ def settings():
                 existing_settings.take_profit = trading_form.take_profit.data
                 existing_settings.is_active = trading_form.is_active.data
                 existing_settings.updated_at = datetime.utcnow()
-            else:
+        else:
                 # Yeni ayarlar oluştur
                 new_settings = TradingSettings(
-                    user_id=current_user.id,
-                    symbol=trading_form.symbol.data,
-                    timeframe=trading_form.timeframe.data,
-                    leverage=trading_form.leverage.data,
-                    stop_loss=trading_form.stop_loss.data,
-                    take_profit=trading_form.take_profit.data,
+                user_id=current_user.id,
+                symbol=trading_form.symbol.data,
+                timeframe=trading_form.timeframe.data,
+                leverage=trading_form.leverage.data,
+                stop_loss=trading_form.stop_loss.data,
+                take_profit=trading_form.take_profit.data,
                     is_active=trading_form.is_active.data
-                )
+            )
                 db.session.add(new_settings)
             
-            db.session.commit()
+        db.session.commit()
             flash('Trading ayarları başarıyla kaydedildi', 'success')
-            return redirect(url_for('main.settings'))
-    
+        return redirect(url_for('main.settings'))
+        
     # Mevcut ayarları forma doldur
     if request.method == 'GET':
         api_form.api_key.data = current_user.api_key
@@ -132,8 +132,8 @@ def settings():
             trading_form.stop_loss.data = last_settings.stop_loss
             trading_form.take_profit.data = last_settings.take_profit
             trading_form.is_active.data = last_settings.is_active
-    
-    return render_template('main/settings.html', 
+        
+    return render_template('main/settings.html',
                          api_form=api_form,
                          trading_form=trading_form)
 
