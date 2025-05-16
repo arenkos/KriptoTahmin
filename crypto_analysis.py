@@ -510,7 +510,11 @@ for symbol in symbols:
                             bakiye = 100.0
                             x = 3
                             stop = 0
+                            kar_stop = 0
                             likit = 0
+                            islem = 0
+                            basarili = 0
+                            basarisiz = 0
                             # Supertrend indikatörü ve hacim kullanılarak girilen işlemler ana kısım
                             while x < lim:
                                 depo = 0
