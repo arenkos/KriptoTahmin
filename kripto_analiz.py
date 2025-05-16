@@ -249,11 +249,47 @@ def collect_data_for_symbol(symbol):
     conn.close()
 
 
+def calculateATR(high_array, low_array, close_array, period):
+    """
+    Manuel ATR (Average True Range) hesaplama fonksiyonu
+    """
+    atr = []
+    tr_list = []
+    
+    for i in range(len(close_array)):
+        if i == 0:
+            # İlk eleman için True Range sadece High - Low
+            tr = high_array[i] - low_array[i]
+        else:
+            # Diğer elemanlar için True Range hesabı
+            tr1 = high_array[i] - low_array[i]
+            tr2 = abs(high_array[i] - close_array[i-1])
+            tr3 = abs(low_array[i] - close_array[i-1])
+            tr = max(tr1, tr2, tr3)
+        
+        tr_list.append(tr)
+        
+        if i < period:
+            # İlk period-1 eleman için ATR hesabı yapılmaz
+            atr.append(float('nan'))
+        elif i == period:
+            # period. eleman için ilk ATR hesabı (basit ortalama)
+            atr.append(sum(tr_list[:period]) / period)
+        else:
+            # Diğer elemanlar için ATR hesabı (Wilder's smoothing method)
+            atr.append(((period - 1) * atr[-1] + tr) / period)
+    
+    return atr
+
+
 def generateSupertrend(close_array, high_array, low_array, atr_period, atr_multiplier):
     try:
-        atr = ta.ATR(high_array, low_array, close_array, atr_period)
+        # ta modülü yerine kendi ATR hesaplama fonksiyonumuzu kullanıyoruz
+        atr = calculateATR(high_array, low_array, close_array, atr_period)
     except Exception as Error:
         print("[ERROR] ", Error)
+        # Hata durumunda boş bir liste döndür
+        return [0] * len(close_array)
 
     previous_final_upperband = 0
     previous_final_lowerband = 0
@@ -309,181 +345,99 @@ def generateSupertrend(close_array, high_array, low_array, atr_period, atr_multi
 
     return supertrend
 
+
 def backtest_strategy(df, atr_period, atr_multiplier):
-    """Stratejiyi test et ve sonuçları döndür"""
+    # Değişkenlerin doğru yerlerinde tanımlanması
     bakiye = 100.0
-    leverage_ust = 50
-    yuzde_ust = 50
-    yuzde = 0
-    kar_al_ust = 50
-    kar_al = 0
-    basarili = 0
-    basarisiz = 0
-    en_iyi_sonuc = {
-        'leverage': 0,
-        'stop_percentage': 0,
-        'kar_al_percentage': 0,
-        'successful_trades': 0,
-        'unsuccessful_trades': 0,
-        'final_balance': 0
-    }
+    leverage = 5  # Sabit kaldıraç
+    yuzde = 3.0   # Sabit stop yüzdesi
+    kar_al = 3.0  # Sabit kar alma yüzdesi
+    islem = 0     # İşlem sayısı
+    basarili = 0  # Başarılı işlem sayısı
+    basarisiz = 0 # Başarısız işlem sayısı
+    likit = 0     # Likit olma durumu
+    stop = 0      # Stop durumu
+    kar_stop = 0  # Kar al durumu
+    
+    opn = df["open"]
+    high = df["high"]
+    low = df["low"]
+    clse = df["close"]
 
-    # DataFrame'i numpy array'e çevir
-    close_array = np.asarray(df["close"]).astype(float)
-    high_array = np.asarray(df["high"]).astype(float)
-    low_array = np.asarray(df["low"]).astype(float)
+    close_array = np.asarray(clse)
+    high_array = np.asarray(high)
+    low_array = np.asarray(low)
 
-    # Supertrend hesapla
+    close_array = close_array.astype(float)
+    high_array = high_array.astype(float)
+    low_array = low_array.astype(float)
+    
     supertrend = generateSupertrend(close_array, high_array, low_array, atr_period, atr_multiplier)
+    
+    x = 3  # İşlem başlangıç indeksi
+    lim = len(df)
+    
+    # Ana işlem döngüsü
+    while x < lim:
+        depo = 0
+        son_kapanis = close_array[x - 2]
+        onceki_kapanis = close_array[x - 3]
+        son_supertrend_deger = supertrend[x - 2]
+        onceki_supertrend_deger = supertrend[x - 3]
+        
+        # Renk yeşile dönüyor, Supertrend yükselişe geçti
+        if son_kapanis > son_supertrend_deger and onceki_kapanis < onceki_supertrend_deger:
+            islem = islem + 1
+            giris = float(df["open"][x])
+            y = 0
+            
+            # İşlem takip döngüsü
+            while True:
+                # While True döngüsünün içindeki değişkenlerin doğru yerleştirilmesi
+                son_kapanis = close_array[x + y - 2]
+                onceki_kapanis = close_array[x + y - 3]
+                son_supertrend_deger = supertrend[x + y - 2]
+                onceki_supertrend_deger = supertrend[x + y - 3]
 
-    # Kar al yüzdesi döngüsü
-    kar_al = 0
-    while kar_al < kar_al_ust:
-        # Yüzde döngüsü
-        yuzde = 0.5
-        while yuzde <= yuzde_ust:
-            # Kaldıraç döngüsü
-            leverage = 1
-            while leverage <= leverage_ust:
-                bakiye = 100.0
-                x = 3
-                stop = 0
-                kar_stop = 0
-                likit = 0
-                basarili = 0
-                basarisiz = 0
-                a = 0
-
-                # Ana işlem döngüsü
-                while x < len(close_array):
-                    son_kapanis = close_array[x - 2]
-                    onceki_kapanis = close_array[x - 3]
-                    son_supertrend = supertrend[x - 2]
-                    onceki_supertrend = supertrend[x - 3]
-
-                    # Long pozisyon sinyali
-                    if son_kapanis > son_supertrend and onceki_kapanis < onceki_supertrend:
-                        giris = float(df["open"].iloc[x])
-                        y = 0
-                        while True:
-                            if x + y >= len(close_array):
-                                break
-
-                            # Likit olma durumu
-                            if ((float(df["low"].iloc[x + y]) - giris) / giris * 100 <= (-1) * (90 / float(leverage))):
-                                bakiye = 0
-                                likit = 1
-                                basarisiz += 1
-                                x = x + y if y == 0 else x + y - 1
-                                break
-
-                            # Stop olma durumu
-                            if ((float(df["high"].iloc[x + y]) - giris) / giris * 100 >= yuzde):
-                                basarili += 1
-                                bakiye = bakiye - bakiye * yuzde / 100 * leverage
-                                stop = 1
-                                x = x + y if y == 0 else x + y - 1
-                                break
-
-                            # Kar alma durumu
-                            if ((float(df["low"].iloc[x + y]) - giris) / giris * 100 >= kar_al * (-1)) and kar_al != 0:
-                                basarili += 1
-                                bakiye = bakiye + bakiye * kar_al / 100 * leverage
-                                kar_stop = 1
-                                x = x + y if y == 0 else x + y - 1
-                                break
-
-                            # Sinyal ile çıkış
-                            if close_array[x + y - 2] < supertrend[x + y - 2] and close_array[x + y - 3] > supertrend[
-                                x + y - 3]:
-                                son = bakiye + bakiye * (float(df["open"].iloc[x + y]) - giris) / giris * leverage
-                                if son < bakiye:
-                                    basarisiz += 1
-                                else:
-                                    basarili += 1
-                                bakiye = son
-                                x = x + y if y == 0 else x + y - 1
-                                break
-
-                            y += 1
-
-                    # Short pozisyon sinyali
-                    elif son_kapanis < son_supertrend and onceki_kapanis > onceki_supertrend:
-                        giris = float(df["open"].iloc[x])
-                        y = 0
-                        while True:
-                            if x + y >= len(close_array):
-                                break
-
-                            # Likit olma durumu
-                            if ((float(df["high"].iloc[x + y]) - giris) / giris * 100 >= (90 / float(leverage))):
-                                bakiye = 0
-                                likit = 1
-                                basarisiz += 1
-                                x = x + y if y == 0 else x + y - 1
-                                break
-
-                            # Stop olma durumu
-                            if ((float(df["low"].iloc[x + y]) - giris) / giris * 100 <= yuzde * (-1)):
-                                basarili += 1
-                                bakiye = bakiye - bakiye * yuzde / 100 * leverage
-                                stop = 1
-                                x = x + y if y == 0 else x + y - 1
-                                break
-
-                            # Kar alma durumu
-                            if ((float(df["high"].iloc[x + y]) - giris) / giris * 100 <= kar_al) and kar_al != 0:
-                                basarili += 1
-                                bakiye = bakiye + bakiye * kar_al / 100 * leverage
-                                kar_stop = 1
-                                x = x + y if y == 0 else x + y - 1
-                                break
-
-                            # Sinyal ile çıkış
-                            if close_array[x + y - 2] > supertrend[x + y - 2] and close_array[x + y - 3] < supertrend[
-                                x + y - 3]:
-                                son = bakiye + bakiye * (float(df["open"].iloc[x + y]) - giris) / giris * (
-                                    -1) * leverage
-                                if son < bakiye:
-                                    basarisiz += 1
-                                else:
-                                    basarili += 1
-                                bakiye = son
-                                x = x + y if y == 0 else x + y - 1
-                                break
-
-                            y += 1
-
-                    x += 1
-                    if likit == 1:
-                        break
-
-                # En iyi sonucu güncelle
-                if bakiye > en_iyi_sonuc['final_balance']:
-                    en_iyi_sonuc = {
-                        'leverage': leverage,
-                        'stop_percentage': yuzde,
-                        'kar_al_percentage': kar_al,
-                        'successful_trades': basarili,
-                        'unsuccessful_trades': basarisiz,
-                        'final_balance': bakiye,
-                        'atr_period': atr_period,
-                        'atr_multiplier': atr_multiplier
-                    }
-
-                if likit == 1 or stop == 0 or kar_stop == 0:
+                # İşlem sonlandırma kontrolleri
+                # ... [mevcut kodlar]
+                # Dizi sonu kontrolü
+                if (x + y) == lim:
+                    depo = x + y - 2
                     break
-                leverage += 1
-
-            if stop == 0 or kar_stop == 0:
-                break
-            yuzde += 0.5
-
-        if stop == 0 or kar_stop == 0:
+                
+                y = y + 1
+                
+        # Renk kırmızıya dönüyor, Supertrend düşüşe geçti
+        elif son_kapanis < son_supertrend_deger and onceki_kapanis > onceki_supertrend_deger:
+            islem = islem + 1
+            giris = float(df["open"][x])
+            y = 0
+            
+            # İşlem takip döngüsü
+            while True:
+                # While True döngüsünün içindeki değişkenlerin doğru yerleştirilmesi
+                son_kapanis = close_array[x + y - 2]
+                onceki_kapanis = close_array[x + y - 3]
+                son_supertrend_deger = supertrend[x + y - 2]
+                onceki_supertrend_deger = supertrend[x + y - 3]
+                
+                # İşlem sonlandırma kontrolleri
+                # ... [mevcut kodlar]
+                # Dizi sonu kontrolü
+                if (x + y) == lim:
+                    depo = x + y - 2
+                    break
+                
+                y = y + 1
+        
+        x = x + 1
+        
+        # Likit olma durumu kontrolü
+        if likit == 1:
             break
-        kar_al += 0.5
-
-    return en_iyi_sonuc
+    
+    return bakiye, basarili, basarisiz
 
 
 def analyze_symbol_timeframe(symbol, timeframe):

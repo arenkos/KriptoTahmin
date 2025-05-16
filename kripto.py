@@ -498,15 +498,16 @@ async def main():
             leverage_ust = 50
             lev_ust = 50
             yuzde_ust = 50
-            yuzde = 0
+            yuzde = 0  # Döngü başlangıç değeri
             kar_al_ust = 50
-            kar_al = 0
+            kar_al = 0  # Döngü başlangıç değeri
             yuz_ust = 50
             kar_ust = 50
             islemsonu = [[0 for x in range(yuz_ust * 2 + 1)] for y in range(lev_ust + 1)]
             basarili_islem = [[0 for x in range(yuz_ust * 2 + 1)] for y in range(lev_ust + 1)]
             basarisiz_islem = [[0 for x in range(yuz_ust * 2 + 1)] for y in range(lev_ust + 1)]
-
+            a = 0  # Matris için indeks değişkeni ilk başta tanımlanmalı
+            
             en_iyi_bakiye = {
                 'leverage': 0,
                 'yuzde': 0,
@@ -515,7 +516,7 @@ async def main():
                 'bakiye': 0,
                 'basari_orani': 0
             }
-
+            
             en_iyi_oran = {
                 'leverage': 0,
                 'yuzde': 0,
@@ -539,11 +540,12 @@ async def main():
             low_array = low_array.astype(float)
             atr_period = 10
             atr_multiplier = 3
-            tahmin = []
+            tahmin = []  # Tahmin listesi bir kez tanımlanmalı
+            
             if atr_period == 10:
                 if atr_multiplier == 3:
                     supertrend = generateSupertrend(close_array, high_array, low_array, atr_period=atr_period,
-                                                    atr_multiplier=atr_multiplier)
+                                                   atr_multiplier=atr_multiplier)
                     kar_al = 0
                     while kar_al < kar_al_ust:
                         yuzde = 0
@@ -561,10 +563,10 @@ async def main():
                                 stop = 0
                                 kar_stop = 0
                                 likit = 0
-                                islem = 0
-                                basarili = 0
-                                basarisiz = 0
-                                a = 0
+                                islem = 0       # İşlem sayısı
+                                basarili = 0    # Başarılı işlem sayısı
+                                basarisiz = 0   # Başarısız işlem sayısı
+                                
                                 # Supertrend indikatörü ve hacim kullanılarak girilen işlemler ana kısım
                                 while x < lim:
                                     depo = 0
@@ -586,6 +588,7 @@ async def main():
                                         giris = float(df["open"][x])
                                         y = 0
                                         while True:
+                                            # While True döngüsünün içindeki değişkenlerin doğru yerleştirilmesi
                                             son_kapanis = close_array[x + y - 2]
                                             onceki_kapanis = close_array[x + y - 3]
                                             son_supertrend_deger = supertrend[x + y - 2]
@@ -675,6 +678,7 @@ async def main():
                                         giris = float(df["open"][x])
                                         y = 0
                                         while True:
+                                            # While True döngüsünün içindeki değişkenlerin doğru yerleştirilmesi
                                             son_kapanis = close_array[x + y - 2]
                                             onceki_kapanis = close_array[x + y - 3]
                                             son_supertrend_deger = supertrend[x + y - 2]
@@ -774,15 +778,11 @@ async def main():
                                 basarisiz = 0
                                 leverage = leverage + 1
 
-                                # Stop çalışmadıysa yüzde döngüsünden çıkılsın
-                                if stop == 0:
-                                    break
-
                                 # Kar Stop çalışmadıysa yüzde döngüsünden çıkılsın
                                 if kar_stop == 0:
                                     break
                             lev = leverage_ust
-
+ 
                             # Stop çalışmadıysa yüzde döngüsünden çıkılsın
                             if stop == 0:
                                 yuzde_ust = yuzde
@@ -809,7 +809,7 @@ async def main():
                                     leverage_ust = leverage_ust + 1
                                 break
                             yuzde = yuzde + 0.5
-                            a = a + 1
+                            a = a + 1  # a değişkeni her yüzde artışında güncellenmeli
                             leverage_ust = lev - 1
                         kar_al = kar_al + 0.5
                     leverage = 0

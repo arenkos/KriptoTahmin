@@ -3,7 +3,6 @@ import ccxt
 import pandas as pd
 import numpy as np
 from datetime import datetime
-import talib as ta
 import math
 import sqlite3  # SQLite veritabanı için eklendi
 import argparse # Komut satırı argümanları için eklendi
