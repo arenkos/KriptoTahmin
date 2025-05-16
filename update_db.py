@@ -78,7 +78,7 @@ def insert_ohlcv_data(conn, symbol, timeframe, data):
     cursor = conn.cursor()
     for row in data:
         try:
-        cursor.execute('''
+            cursor.execute('''
                 INSERT OR REPLACE INTO ohlcv_data 
                 (symbol, timestamp, timeframe, open, high, low, close, volume)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -120,4 +120,4 @@ def update_data():
     print("\n✅ Tüm veriler başarıyla güncellendi.")
 
 if __name__ == "__main__":
-update_data()
+    update_data()
