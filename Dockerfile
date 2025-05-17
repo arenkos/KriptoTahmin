@@ -56,4 +56,4 @@ RUN pip install --no-cache-dir --upgrade pip \
 COPY . .
 
 # Ana scripti çalıştır
-CMD ["python", "kripto_analiz.py", "--mode", "analyze", "--batch", "1"]
+CMD ["python", "kripto.py", "--mode", "analyze", "--batch", "1"]

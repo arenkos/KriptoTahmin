@@ -2,6 +2,7 @@ import time
 import ccxt
 import pandas as pd
 import numpy as np
+import struct
 from datetime import datetime
 import ta
 import math
@@ -11,8 +12,8 @@ import os
 import argparse  # Komut satırı argümanları için eklendi
 
 # Web sunucusu bilgileri
-DB_URL = 'https://www.aryazilimdanismanlik.com/kripto/crypto_data.db'
-LOCAL_DB_PATH = 'temp_crypto_data.db'
+# DB_URL = 'https://www.aryazilimdanismanlik.com/kripto/crypto_data.db'
+LOCAL_DB_PATH = 'crypto_data.db'
 
 # Komut satırı argümanlarını tanımla
 parser = argparse.ArgumentParser(description='Kripto para analizi')
@@ -63,9 +64,6 @@ def upload_db():
 
 # Veritabanı bağlantısı oluşturma
 def create_db_connection():
-    if not download_db():
-        raise Exception("Veritabanı indirilemedi")
-
     conn = sqlite3.connect(LOCAL_DB_PATH)
     cursor = conn.cursor()
 
@@ -153,15 +151,8 @@ def save_results_to_db(symbol, timeframe, leverage, stop_percentage, kar_al_perc
         conn.commit()
         conn.close()
 
-        # Değişiklikleri sunucuya yükle
-        if not upload_db():
-            raise Exception("Veritabanı sunucuya yüklenemedi")
-
     except Exception as e:
         print(f"Veritabanı hatası: {str(e)}")
-    finally:
-        if os.path.exists(LOCAL_DB_PATH):
-            os.remove(LOCAL_DB_PATH)
 
 
 # API CONNECT
@@ -390,12 +381,29 @@ async def main():
         except Exception as e:
             print(f"Veritabanına kaydetme hatası: {e}")
 
+        def convert_timestamp_column(df):
+            def fix(ts):
+                if isinstance(ts, bytes) and len(ts) == 8:
+                    return struct.unpack('<Q', ts)[0]  # 8 byte -> unsigned long long -> int timestamp
+                elif isinstance(ts, int):
+                    return ts  # Zaten int ise olduğu gibi bırak
+                else:
+                    return None  # Hatalıysa None döndür
+
+            df["timestamp"] = df["timestamp"].apply(fix)
+            return df
+
         try:
-            bars = exchange.fetch_ohlcv(symbol, timeframe="1w", since=None, limit=int(lim_olustur("1w")))
+            bars = exchange.fetch_ohlcv(symbol, timeframe="1w", since=start_date, limit=int(lim_olustur("1w")))
             df_1w = pd.DataFrame(bars, columns=["timestamp", "open", "high", "low", "close", "volume"])
+
+            # Timestamp'leri integer formatına (bytes ise) dönüştür
+            df_1w = convert_timestamp_column(df_1w)
+
             save_to_db(conn, symbolName[s], df_1w, "1w")
         except Exception as e:
             print(f"1w veri çekme ve kaydetme hatası: {e}")
+
 
         def calculateATR(high_array, low_array, close_array, period):
             """

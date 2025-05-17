@@ -20,13 +20,20 @@ timeframes = {
 def create_db_connection():
     conn = sqlite3.connect('crypto_data.db')
     cursor = conn.cursor()
-    
-    # Önce mevcut tabloyu yedekle
+
+    # Mevcut tabloyu yedekle
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS ohlcv_data_backup AS 
         SELECT * FROM ohlcv_data
     ''')
-    
+    """
+    # "BTC" içeren verileri çek
+    cursor.execute('''SELECT * FROM ohlcv_data where timeframe="1w"''')
+    data = cursor.fetchall()
+
+    # Sonuçları yazdır
+    for row in data:
+        print(row)"""
     # Eski tabloyu sil
     cursor.execute('DROP TABLE IF EXISTS ohlcv_data')
     
