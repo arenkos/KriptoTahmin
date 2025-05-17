@@ -3,6 +3,7 @@ import ccxt
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import ta
 import math
 import sqlite3  # SQLite veritabanı için eklendi
 import argparse # Komut satırı argümanları için eklendi
@@ -376,16 +377,48 @@ for symbol in symbols:
         print(f"Veritabanına kaydetme hatası: {e}")
     
     try:
-        bars = exchange.fetch_ohlcv(symbol, timeframe="1w", since=None, limit=int(lim_olustur("1w")))
+        bars = exchange.fetch_ohlcv(symbol, timeframe="1w", since=start_date, limit=int(lim_olustur("1w")))
         df_1w = pd.DataFrame(bars, columns=["timestamp", "open", "high", "low", "close", "volume"])
         save_to_db(conn, symbolName[s], df_1w, "1w")
     except Exception as e:
         print(f"1w veri çekme ve kaydetme hatası: {e}")
 
 
+    def calculateATR(high_array, low_array, close_array, period):
+        """
+        Manuel ATR (Average True Range) hesaplama fonksiyonu
+        """
+        atr = []
+        tr_list = []
+
+        for i in range(len(close_array)):
+            if i == 0:
+                # İlk eleman için True Range sadece High - Low
+                tr = high_array[i] - low_array[i]
+            else:
+                # Diğer elemanlar için True Range hesabı
+                tr1 = high_array[i] - low_array[i]
+                tr2 = abs(high_array[i] - close_array[i - 1])
+                tr3 = abs(low_array[i] - close_array[i - 1])
+                tr = max(tr1, tr2, tr3)
+
+            tr_list.append(tr)
+
+            if i < period:
+                # İlk period-1 eleman için ATR hesabı yapılmaz
+                atr.append(float('nan'))
+            elif i == period:
+                # period. eleman için ilk ATR hesabı (basit ortalama)
+                atr.append(sum(tr_list[:period]) / period)
+            else:
+                # Diğer elemanlar için ATR hesabı (Wilder's smoothing method)
+                atr.append(((period - 1) * atr[-1] + tr) / period)
+
+        return atr
+
     def generateSupertrend(close_array, high_array, low_array, atr_period, atr_multiplier):
         try:
-            atr = ta.ATR(high_array, low_array, close_array, atr_period)
+            atr = calculateATR(high_array, low_array, close_array, atr_period)
         except Exception as Error:
             print("[ERROR] ", Error)
 
