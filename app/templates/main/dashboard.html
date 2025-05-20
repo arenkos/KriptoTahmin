@@ -27,7 +27,8 @@
                                         <th>Kaldıraç</th>
                                         <th>Stop Loss</th>
                                         <th>Take Profit</th>
-                                        <th>Durum</th>
+                                        <th>Binance</th>
+                                        <th>Telegram</th>
                                         <th>İşlemler</th>
                                     </tr>
                                 </thead>
@@ -40,18 +41,34 @@
                                         <td>%{{ setting.stop_loss }}</td>
                                         <td>%{{ setting.take_profit }}</td>
                                         <td>
-                                            {% if setting.is_active %}
-                                            <span class="badge bg-success">Aktif</span>
+                                            {% if setting.binance_active %}
+                                                <span class="badge bg-success">Aktif</span>
                                             {% else %}
-                                            <span class="badge bg-secondary">Pasif</span>
+                                                <span class="badge bg-secondary">Pasif</span>
                                             {% endif %}
                                         </td>
                                         <td>
-                                            {% if setting.is_active %}
-                                            <a href="{{ url_for('main.stop_trading', settings_id=setting.id) }}" class="btn btn-sm btn-danger">Durdur</a>
+                                            {% if setting.telegram_active %}
+                                                <span class="badge bg-success">Aktif</span>
                                             {% else %}
-                                            <a href="{{ url_for('main.start_trading', settings_id=setting.id) }}" class="btn btn-sm btn-success">Başlat</a>
+                                                <span class="badge bg-secondary">Pasif</span>
                                             {% endif %}
+                                        </td>
+                                        <td>
+                                            <!-- Binance butonları -->
+                                            {% if setting.binance_active %}
+                                                <a href="{{ url_for('main.stop_binance', settings_id=setting.id) }}" class="btn btn-sm btn-warning">Binance Durdur</a>
+                                            {% else %}
+                                                <a href="{{ url_for('main.start_binance', settings_id=setting.id) }}" class="btn btn-sm btn-success">Binance Başlat</a>
+                                            {% endif %}
+                                            <!-- Telegram butonları -->
+                                            {% if setting.telegram_active %}
+                                                <a href="{{ url_for('main.stop_telegram', settings_id=setting.id) }}" class="btn btn-sm btn-warning">Telegram Durdur</a>
+                                            {% else %}
+                                                <a href="{{ url_for('main.start_telegram', settings_id=setting.id) }}" class="btn btn-sm btn-success">Telegram Başlat</a>
+                                            {% endif %}
+                                            <!-- Sil butonu -->
+                                            <a href="{{ url_for('main.delete_setting', settings_id=setting.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Bu ayarı silmek istediğinize emin misiniz?');">Sil</a>
                                         </td>
                                     </tr>
                                     {% endfor %}

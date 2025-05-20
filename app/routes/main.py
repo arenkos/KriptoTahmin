@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify, current_app, session
 from flask_login import login_required, current_user
 from app.models.database import db, User, TradingSettings, Transaction, AnalysisResult
-from app.forms.main import TradingSettingsForm, APISettingsForm
+from app.forms.main import SettingsForm
 from app.utils.api.binance_api import BinanceAPI
 from app.utils.indicators.analysis import CryptoAnalyzer
 from config import Config
@@ -12,6 +12,8 @@ import pandas as pd
 import ccxt
 import concurrent.futures
 import sqlite3
+import subprocess
+import signal
 
 from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify, current_app
 
@@ -55,8 +57,8 @@ def dashboard():
         Transaction.created_at.desc()
     ).paginate(page=page, per_page=per_page)
     
-    # Kullanıcının trading ayarlarını al
-    settings = TradingSettings.query.filter_by(user_id=current_user.id, is_active=True).all()
+    # Kullanıcının trading ayarlarını al (is_active filtresi kaldırıldı)
+    settings = TradingSettings.query.filter_by(user_id=current_user.id).all()
     
     return render_template('main/dashboard.html',
                          settings=settings,
@@ -65,77 +67,57 @@ def dashboard():
 @bp.route('/settings', methods=['GET', 'POST'])
 @login_required
 def settings():
-    api_form = APISettingsForm()
-    trading_form = TradingSettingsForm()
-    
+    form = SettingsForm()
     # Form seçeneklerini doldur
-    trading_form.symbol.choices = [(s, s) for s in SUPPORTED_SYMBOLS]
-    trading_form.timeframe.choices = [(t, t) for t in TIMEFRAMES]
-    
-    if request.method == 'POST':
-        if api_form.validate_on_submit():
-            current_user.api_key = api_form.api_key.data
-            current_user.api_secret = api_form.api_secret.data
-            current_user.balance = api_form.balance.data
-            db.session.commit()
-            flash('API ayarları başarıyla kaydedildi', 'success')
-            return redirect(url_for('main.settings'))
-            
-        elif trading_form.validate_on_submit():
-            # Mevcut ayarları kontrol et
-            existing_settings = TradingSettings.query.filter_by(
-            user_id=current_user.id,
-            symbol=trading_form.symbol.data,
-            timeframe=trading_form.timeframe.data
-        ).first()
-        
-            if existing_settings:
-                # Mevcut ayarları güncelle
-                existing_settings.leverage = trading_form.leverage.data
-                existing_settings.stop_loss = trading_form.stop_loss.data
-                existing_settings.take_profit = trading_form.take_profit.data
-                existing_settings.is_active = trading_form.is_active.data
-                existing_settings.updated_at = datetime.utcnow()
-        else:
-                # Yeni ayarlar oluştur
-                new_settings = TradingSettings(
-                user_id=current_user.id,
-                symbol=trading_form.symbol.data,
-                timeframe=trading_form.timeframe.data,
-                leverage=trading_form.leverage.data,
-                stop_loss=trading_form.stop_loss.data,
-                take_profit=trading_form.take_profit.data,
-                    is_active=trading_form.is_active.data
-            )
-                db.session.add(new_settings)
-            
+    form.symbol.choices = [(s, s) for s in SUPPORTED_SYMBOLS]
+    form.timeframe.choices = [(t, t) for t in TIMEFRAMES]
+
+    if request.method == 'POST' and form.validate_on_submit():
+        # API bilgilerini kaydet
+        current_user.api_key = form.api_key.data
+        current_user.api_secret = form.api_secret.data
+        current_user.balance = form.balance.data
         db.session.commit()
-            flash('Trading ayarları başarıyla kaydedildi', 'success')
-        return redirect(url_for('main.settings'))
-        
-    # Mevcut ayarları forma doldur
-    if request.method == 'GET':
-        api_form.api_key.data = current_user.api_key
-        api_form.api_secret.data = current_user.api_secret
-        api_form.balance.data = current_user.balance
-        
-        # Son aktif trading ayarlarını al
-        last_settings = TradingSettings.query.filter_by(
+        # Trading ayarlarını kaydet
+        existing_settings = TradingSettings.query.filter_by(
             user_id=current_user.id,
-            is_active=True
+            symbol=form.symbol.data,
+            timeframe=form.timeframe.data
+        ).first()
+        if existing_settings:
+            existing_settings.leverage = form.leverage.data
+            existing_settings.stop_loss = form.stop_loss.data
+            existing_settings.take_profit = form.take_profit.data
+            existing_settings.updated_at = datetime.utcnow()
+        else:
+            new_settings = TradingSettings(
+                user_id=current_user.id,
+                symbol=form.symbol.data,
+                timeframe=form.timeframe.data,
+                leverage=form.leverage.data,
+                stop_loss=form.stop_loss.data,
+                take_profit=form.take_profit.data
+            )
+            db.session.add(new_settings)
+        db.session.commit()
+        flash('Ayarlar başarıyla kaydedildi', 'success')
+        return redirect(url_for('main.settings'))
+
+    # GET ise mevcut ayarları forma doldur
+    if request.method == 'GET':
+        form.api_key.data = current_user.api_key
+        form.api_secret.data = current_user.api_secret
+        form.balance.data = current_user.balance
+        last_settings = TradingSettings.query.filter_by(
+            user_id=current_user.id
         ).order_by(TradingSettings.updated_at.desc()).first()
-        
         if last_settings:
-            trading_form.symbol.data = last_settings.symbol
-            trading_form.timeframe.data = last_settings.timeframe
-            trading_form.leverage.data = last_settings.leverage
-            trading_form.stop_loss.data = last_settings.stop_loss
-            trading_form.take_profit.data = last_settings.take_profit
-            trading_form.is_active.data = last_settings.is_active
-        
-    return render_template('main/settings.html',
-                         api_form=api_form,
-                         trading_form=trading_form)
+            form.symbol.data = last_settings.symbol
+            form.timeframe.data = last_settings.timeframe
+            form.leverage.data = last_settings.leverage
+            form.stop_loss.data = last_settings.stop_loss
+            form.take_profit.data = last_settings.take_profit
+    return render_template('main/settings.html', form=form)
 
 @bp.route('/analyze/<symbol>/<timeframe>')
 @login_required
@@ -202,6 +184,81 @@ def stop_trading(settings_id):
     flash('Trading durduruldu', 'success')
     return redirect(url_for('main.dashboard'))
 
+@bp.route('/start_binance/<settings_id>')
+@login_required
+def start_binance(settings_id):
+    settings = TradingSettings.query.get_or_404(settings_id)
+    if settings.user_id != current_user.id:
+        flash('Bu ayarlara erişim izniniz yok', 'danger')
+        return redirect(url_for('main.dashboard'))
+    if not current_user.api_key or not current_user.api_secret or not current_user.balance:
+        flash('Binance işlemlerini başlatmak için API bilgilerinizi ve bakiyenizi girin.', 'warning')
+        return redirect(url_for('main.settings'))
+    settings.binance_active = True
+    db.session.commit()
+    # trade.py'yi Binance için başlat
+    subprocess.Popen([sys.executable, "trade.py", "--mode", "binance", "--settings_id", str(settings.id)])
+    flash('Binance işlemleri başlatıldı', 'success')
+    return redirect(url_for('main.dashboard'))
+
+@bp.route('/stop_binance/<settings_id>')
+@login_required
+def stop_binance(settings_id):
+    settings = TradingSettings.query.get_or_404(settings_id)
+    if settings.user_id != current_user.id:
+        flash('Bu ayarlara erişim izniniz yok', 'danger')
+        return redirect(url_for('main.dashboard'))
+    settings.binance_active = False
+    db.session.commit()
+    # trade.py process'ini durdur (ör: PID dosyasından oku ve öldür)
+    try:
+        with open(f"binance_pid_{settings.id}.txt", "r") as f:
+            pid = int(f.read())
+        os.kill(pid, signal.SIGTERM)
+    except Exception as e:
+        print(f"Binance işlemi durdurulamadı: {e}")
+    flash('Binance işlemleri durduruldu', 'success')
+    return redirect(url_for('main.dashboard'))
+
+@bp.route('/start_telegram/<settings_id>')
+@login_required
+def start_telegram(settings_id):
+    settings = TradingSettings.query.get_or_404(settings_id)
+    if settings.user_id != current_user.id:
+        flash('Bu ayarlara erişim izniniz yok', 'danger')
+        return redirect(url_for('main.dashboard'))
+    settings.telegram_active = True
+    db.session.commit()
+    # trade.py'yi Telegram için başlat
+    subprocess.Popen([sys.executable, "trade.py", "--mode", "telegram", "--settings_id", str(settings.id)])
+    flash('Telegram sinyali başlatıldı', 'success')
+    return redirect(url_for('main.dashboard'))
+
+@bp.route('/stop_telegram/<settings_id>')
+@login_required
+def stop_telegram(settings_id):
+    settings = TradingSettings.query.get_or_404(settings_id)
+    if settings.user_id != current_user.id:
+        flash('Bu ayarlara erişim izniniz yok', 'danger')
+        return redirect(url_for('main.dashboard'))
+    settings.telegram_active = False
+    db.session.commit()
+    # Burada arka planda telegram sinyalini durdurabilirsin
+    # ör: telegram_bot.stop(settings)
+    flash('Telegram sinyali durduruldu', 'success')
+    return redirect(url_for('main.dashboard'))
+
+@bp.route('/delete_setting/<settings_id>')
+@login_required
+def delete_setting(settings_id):
+    settings = TradingSettings.query.get_or_404(settings_id)
+    if settings.user_id != current_user.id:
+        flash('Bu ayarlara erişim izniniz yok', 'danger')
+        return redirect(url_for('main.dashboard'))
+    db.session.delete(settings)
+    db.session.commit()
+    flash('Ayar silindi', 'success')
+    return redirect(url_for('main.dashboard'))
 
 @bp.route('/analyze_parameters')
 @login_required
