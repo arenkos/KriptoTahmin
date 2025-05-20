@@ -19,6 +19,7 @@ import threading
 from binance.client import Client
 from binance.websockets import BinanceSocketManager
 from concurrent.futures import ThreadPoolExecutor
+import argparse
 
 # --- Logging ayarları ---
 logging.basicConfig(
@@ -760,26 +761,88 @@ def execute_trade(user, signal, settings):
     except Exception as e:
         logger.error(f"İşlem hatası: {str(e)}")
 
-# --- MAIN EXECUTION ---
+def run_binance(settings_id):
+    app = create_app()
+    with app.app_context():
+        settings = TradingSettings.query.get(settings_id)
+        if not settings or not settings.binance_active:
+            logger.info(f"Binance işlemleri aktif değil veya ayar bulunamadı (id={settings_id})")
+            return
+        user = User.query.get(settings.user_id)
+        if not user or not user.api_key or not user.api_secret or not user.balance:
+            logger.info(f"Kullanıcı API bilgileri eksik (id={settings.user_id})")
+            return
+        # PID dosyasına yaz
+        with open(f"binance_pid_{settings_id}.txt", "w") as f:
+            f.write(str(os.getpid()))
+        logger.info(f"Binance işlemleri başlatıldı (settings_id={settings_id})")
+        # Burada sürekli işlem/sinyal döngüsü başlatabilirsin
+        while settings.binance_active:
+            # Sinyal ve trade işlemleri burada
+            process_user_data({
+                'user_id': user.id,
+                'username': user.username,
+                'api_key': user.api_key,
+                'api_secret': user.api_secret,
+                'telegram_chat_id': user.telegram_chat_id,
+                'symbol': settings.symbol,
+                'timeframe': settings.timeframe,
+                'leverage': settings.leverage,
+                'stop_loss': settings.stop_loss,
+                'take_profit': settings.take_profit,
+                'balance': user.balance
+            })
+            time.sleep(60)  # Her dakikada bir kontrol
+            db.session.refresh(settings)
+        logger.info(f"Binance işlemleri durduruldu (settings_id={settings_id})")
+
+
+def run_telegram(settings_id):
+    app = create_app()
+    with app.app_context():
+        settings = TradingSettings.query.get(settings_id)
+        if not settings or not settings.telegram_active:
+            logger.info(f"Telegram sinyali aktif değil veya ayar bulunamadı (id={settings_id})")
+            return
+        user = User.query.get(settings.user_id)
+        if not user or not user.telegram_chat_id:
+            logger.info(f"Kullanıcı telegram chat id eksik (id={settings.user_id})")
+            return
+        # PID dosyasına yaz
+        with open(f"telegram_pid_{settings_id}.txt", "w") as f:
+            f.write(str(os.getpid()))
+        logger.info(f"Telegram sinyali başlatıldı (settings_id={settings_id})")
+        # Burada sürekli sinyal döngüsü başlatabilirsin
+        while settings.telegram_active:
+            # Sinyal işlemleri burada
+            process_user_data({
+                'user_id': user.id,
+                'username': user.username,
+                'api_key': user.api_key,
+                'api_secret': user.api_secret,
+                'telegram_chat_id': user.telegram_chat_id,
+                'symbol': settings.symbol,
+                'timeframe': settings.timeframe,
+                'leverage': settings.leverage,
+                'stop_loss': settings.stop_loss,
+                'take_profit': settings.take_profit,
+                'balance': user.balance
+            })
+            time.sleep(60)
+            db.session.refresh(settings)
+        logger.info(f"Telegram sinyali durduruldu (settings_id={settings_id})")
+
+
 def main():
-    """Ana döngü"""
-    try:
-        logger.info("Trading bot başlatılıyor...")
-        
-        # WebSocket manager'ı başlat
-        ws_manager = WebSocketManager()
-        ws_manager.start()
-        
-        # Ana döngüyü çalıştır
-        while True:
-            time.sleep(1)
-            
-    except KeyboardInterrupt:
-        logger.info("Trading bot durduruluyor...")
-        ws_manager.stop()
-    except Exception as e:
-        logger.error(f"Ana döngü hatası: {str(e)}")
-        ws_manager.stop()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--mode', choices=['binance', 'telegram'], required=True)
+    parser.add_argument('--settings_id', type=int, required=True)
+    args = parser.parse_args()
+
+    if args.mode == 'binance':
+        run_binance(args.settings_id)
+    elif args.mode == 'telegram':
+        run_telegram(args.settings_id)
 
 if __name__ == "__main__":
     main()
