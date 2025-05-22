@@ -370,8 +370,8 @@ def deneme(zamanAraligi, df, lim):
     }
 
     # Optimizasyon döngüleri
-    for atr_period in [7, 10, 14]:  # ATR dönemleri
-        for atr_multiplier in [2.0, 2.5, 3.0, 3.5]:  # ATR çarpanları
+    for atr_period in [10]:  # ATR dönemleri
+        for atr_multiplier in [3]:  # ATR çarpanları
             # Supertrend hesapla
             supertrend = generateSupertrend(close_array, high_array, low_array, atr_period, atr_multiplier)
 
@@ -380,9 +380,9 @@ def deneme(zamanAraligi, df, lim):
             if supertrend_series.isnull().any():
                 continue
 
-            for leverage in range(1, 11):  # 1-10 kaldıraç
-                for stop_pct in [i * 0.5 for i in range(1, 21)]:  # 0.5-10% stop
-                    for kar_al_pct in [i * 0.5 for i in range(1, 21)]:  # 0.5-10% kar al
+            for leverage in range(1, 51):  # 1-10 kaldıraç
+                for stop_pct in [i * 0.5 for i in range(1, 101)]:  # 0.5-50% stop
+                    for kar_al_pct in [i * 0.5 for i in range(1, 101)]:  # 0.5-50% kar al
 
                         initial_balance = 100.0
                         balance = initial_balance
