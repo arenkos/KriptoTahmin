@@ -540,7 +540,7 @@ for symbol in symbols:
                         # Kaldıraç döngüsü
                         while leverage <= leverage_ust:
                             bakiye = 100.0
-                            x = 3
+                            x = atr_period + 2 + 3
                             stop = 0
                             kar_stop = 0
                             likit = 0
@@ -548,7 +548,7 @@ for symbol in symbols:
                             basarili = 0
                             basarisiz = 0
                             # Supertrend indikatörü ve hacim kullanılarak girilen işlemler ana kısım
-                            while x < lim:
+                            while x < lim - (atr_period + 2 + 3):
                                 depo = 0
                                 son_kapanis = close_array[x - 2]
                                 onceki_kapanis = close_array[x - 3]

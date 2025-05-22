@@ -552,8 +552,12 @@ async def main():
             
             if atr_period == 10:
                 if atr_multiplier == 3:
-                    supertrend = generateSupertrend(close_array, high_array, low_array, atr_period=atr_period,
-                                                   atr_multiplier=atr_multiplier)
+                    supertrend = pd.Series(generateSupertrend(close_array, high_array, low_array, atr_period=atr_period,
+                                                   atr_multiplier=atr_multiplier))
+                    if supertrend.isna().any():
+                        print("NaN bulunan indeksler ve değerler:")
+                        print(supertrend[supertrend.isna()])
+                        exit()
                     kar_al = 0
                     while kar_al < kar_al_ust:
                         yuzde = 0
@@ -567,7 +571,7 @@ async def main():
                             # Kaldıraç döngüsü
                             while leverage <= leverage_ust:
                                 bakiye = 100.0
-                                x = 3
+                                x = atr_period + 2 + 3
                                 stop = 0
                                 kar_stop = 0
                                 likit = 0
@@ -576,7 +580,7 @@ async def main():
                                 basarisiz = 0   # Başarısız işlem sayısı
                                 
                                 # Supertrend indikatörü ve hacim kullanılarak girilen işlemler ana kısım
-                                while x < lim:
+                                while x < lim - (atr_period + 2 + 3):
                                     depo = 0
                                     son_kapanis = close_array[x - 2]
                                     onceki_kapanis = close_array[x - 3]

@@ -382,7 +382,7 @@ def backtest_strategy(df, atr_period, atr_multiplier):
         # Kaldıraç döngüsü
         while leverage <= leverage_ust:
             bakiye = 100.0
-            x = 3
+            x = atr_period + 2 + 3
             stop = 0
             likit = 0
             islem = 0
@@ -390,7 +390,7 @@ def backtest_strategy(df, atr_period, atr_multiplier):
             basarisiz = 0
             
             # Ana işlem döngüsü
-            while x < len(df):
+            while x < len(df) - (atr_period + 2 + 3):
                 depo = 0
                 son_kapanis = close_array[x - 2]
                 onceki_kapanis = close_array[x - 3]
