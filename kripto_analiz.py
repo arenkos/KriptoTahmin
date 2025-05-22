@@ -2,61 +2,71 @@ import time
 import ccxt
 import pandas as pd
 import numpy as np
+import struct
 from datetime import datetime
-import talib as ta
+import ta
 import math
 import sqlite3
+import requests
+import os
 import argparse
-import concurrent.futures
-from itertools import product
-import sys
+
+# Web sunucusu bilgileri
+# DB_URL = 'https://www.aryazilimdanismanlik.com/kripto/crypto_data.db'
+LOCAL_DB_PATH = 'crypto_data.db'
 
 # Komut satırı argümanlarını tanımla
 parser = argparse.ArgumentParser(description='Kripto para analizi')
 parser.add_argument('--days', type=int, default=730, help='Veri çekilecek gün sayısı (geçmişe doğru)')
-parser.add_argument('--mode', type=str, choices=['collect', 'analyze'], required=True,
-                    help='Çalışma modu: collect (veri toplama) veya analyze (analiz)')
-parser.add_argument('--batch', type=int, choices=[1, 2, 3], help='Analiz grubu (1-3)')
 args = parser.parse_args()
 
 # Kaç gün geriye gideceğimiz
 ANALYSIS_DAYS = args.days
 
-# Sembol listelerini gruplara böl
-SYMBOLS = [
+# Ana sembol listesi - analiz edilecek semboller
+symbols = [
     "BTC/USDT", "ETH/USDT", "BNB/USDT", "XRP/USDT", "ADA/USDT",
     "DOGE/USDT", "SOL/USDT", "DOT/USDT", "AVAX/USDT", "1000SHIB/USDT",
     "LINK/USDT", "UNI/USDT", "ATOM/USDT", "LTC/USDT", "ETC/USDT"
 ]
 
-SYMBOL_NAMES = [s.split('/')[0] for s in SYMBOLS]
-
-# Sembolleri 3 gruba böl
-SYMBOL_GROUPS = [
-    SYMBOLS[0:5],
-    SYMBOLS[5:10],
-    SYMBOLS[10:15]
+# Sembol isimlerini USDT olmadan al (veritabanı kayıtları için)
+symbolName = [
+    "BTC", "ETH", "BNB", "XRP", "ADA",
+    "DOGE", "SOL", "DOT", "AVAX", "1000SHIB",
+    "LINK", "UNI", "ATOM", "LTC", "ETC"
 ]
 
-SYMBOL_NAME_GROUPS = [
-    SYMBOL_NAMES[0:5],
-    SYMBOL_NAMES[5:10],
-    SYMBOL_NAMES[10:15]
-]
 
-TIMEFRAMES = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w"]
+def download_db():
+    try:
+        response = requests.get(DB_URL)
+        response.raise_for_status()
+        with open(LOCAL_DB_PATH, 'wb') as f:
+            f.write(response.content)
+        return True
+    except Exception as e:
+        print(f"Veritabanı indirme hatası: {str(e)}")
+        return False
 
-# ATR parametreleri için aralıklar
-ATR_PERIODS = range(10, 31, 2)  # 10'dan 30'a 2'şer artarak
-ATR_MULTIPLIERS = [x / 10 for x in range(10, 31, 2)]  # 1.0'dan 3.0'a 0.2'şer artarak
+
+def upload_db():
+    try:
+        with open(LOCAL_DB_PATH, 'rb') as f:
+            files = {'file': f}
+            response = requests.post(DB_URL, files=files)
+            response.raise_for_status()
+        return True
+    except Exception as e:
+        print(f"Veritabanı yükleme hatası: {str(e)}")
+        return False
 
 
 # Veritabanı bağlantısı oluşturma
 def create_db_connection():
-    conn = sqlite3.connect('crypto_data.db')
+    conn = sqlite3.connect(LOCAL_DB_PATH)
     cursor = conn.cursor()
 
-    # Gerekli tabloları oluşturma
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS ohlcv_data (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,8 +77,7 @@ def create_db_connection():
         high REAL,
         low REAL,
         close REAL,
-        volume REAL,
-        UNIQUE(symbol, timestamp, timeframe)
+        volume REAL
     )
     ''')
 
@@ -79,13 +88,16 @@ def create_db_connection():
         timeframe TEXT NOT NULL,
         leverage REAL NOT NULL,
         stop_percentage REAL NOT NULL,
+        kar_al_percentage REAL NOT NULL,
         atr_period INTEGER NOT NULL,
         atr_multiplier REAL NOT NULL,
         successful_trades INTEGER NOT NULL,
         unsuccessful_trades INTEGER NOT NULL,
         final_balance REAL NOT NULL,
+        success_rate REAL NOT NULL,
+        optimization_type TEXT NOT NULL,  -- 'balance' veya 'success_rate'
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(symbol, timeframe)
+        UNIQUE(symbol, timeframe, optimization_type)
     )
     ''')
 
@@ -102,51 +114,56 @@ def save_to_db(conn, symbol, df, timeframe):
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             symbol,
-            df["timestamp"][i],
+            df["timestamp"].iloc[i],
             timeframe,
-            df["open"][i],
-            df["high"][i],
-            df["low"][i],
-            df["close"][i],
-            df["volume"][i]
+            df["open"].iloc[i],
+            df["high"].iloc[i],
+            df["low"].iloc[i],
+            df["close"].iloc[i],
+            df["volume"].iloc[i]
         ))
     conn.commit()
 
 
 # Analiz sonuçlarını veritabanına kaydetme
-def save_results_to_db(symbol, timeframe, leverage, stop_percentage, atr_period, atr_multiplier,
-                       successful_trades, unsuccessful_trades, final_balance):
+def save_results_to_db(symbol, timeframe, leverage, stop_percentage, kar_al_percentage,
+                       atr_period, atr_multiplier, successful_trades, unsuccessful_trades,
+                       final_balance, optimization_type='balance'):
     try:
-        conn = sqlite3.connect('crypto_data.db')
+        conn = sqlite3.connect(LOCAL_DB_PATH)
         cursor = conn.cursor()
+
+        total_trades = successful_trades + unsuccessful_trades
+        success_rate = (successful_trades / total_trades * 100) if total_trades > 0 else 0
 
         # Önce eski sonucu sil
         cursor.execute('''
         DELETE FROM analysis_results 
-        WHERE symbol = ? AND timeframe = ?
-        ''', (symbol, timeframe))
+        WHERE symbol = ? AND timeframe = ? AND optimization_type = ?
+        ''', (symbol, timeframe, optimization_type))
 
         # Yeni sonucu ekle
         cursor.execute('''
         INSERT INTO analysis_results 
-        (symbol, timeframe, leverage, stop_percentage, atr_period, atr_multiplier, successful_trades, unsuccessful_trades, final_balance)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-        symbol, timeframe, leverage, stop_percentage, atr_period, atr_multiplier, successful_trades,
-        unsuccessful_trades, final_balance))
+        (symbol, timeframe, leverage, stop_percentage, kar_al_percentage, 
+         atr_period, atr_multiplier, successful_trades, unsuccessful_trades, 
+         final_balance, success_rate, optimization_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (symbol, timeframe, leverage, stop_percentage, kar_al_percentage,
+              atr_period, atr_multiplier, successful_trades, unsuccessful_trades,
+              final_balance, success_rate, optimization_type))
 
         conn.commit()
+        conn.close()
+
     except Exception as e:
         print(f"Veritabanı hatası: {str(e)}")
-    finally:
-        conn.close()
 
 
 # API CONNECT
 exchange = ccxt.binance({
     "apiKey": 'G2dI1suDiH3bCKo1lpx1Ho4cdTjmWh9eQEUSajcshC1rcQ0T1yATZnKukHiqo6IN',
     "secret": 'ow4J1QLRTXhzuhtBcFNOUSPq2uRYhrkqHaLri0zdAiMhoDCfJgEfXz0mSwvgpnPx',
-
     'options': {
         'defaultType': 'future'
     },
@@ -161,14 +178,9 @@ def lim_olustur(zamanAraligi):
         lst.append(i)
 
     def convert(s):
-        # initialization of string to ""
         new = ""
-
-        # traverse in the string
         for x in s:
             new += x
-
-            # return string
         return new
 
     periyot = ""
@@ -204,90 +216,39 @@ def lim_olustur(zamanAraligi):
     return lim
 
 
-def collect_data_for_symbol(symbol):
-    """Tek bir sembol için tüm timeframe'lerde veri topla"""
-    print(f"\n{symbol} için veri toplama başlıyor...")
-
-    end_date = int(datetime.now().timestamp() * 1000)
-    start_date = end_date - (ANALYSIS_DAYS * 86400 * 1000)
-
-    conn = create_db_connection()
-    cursor = conn.cursor()
-
-    for timeframe in TIMEFRAMES:
-        try:
-            print(f"{symbol} - {timeframe} verisi çekiliyor...")
-            bars = exchange.fetch_ohlcv(symbol, timeframe=timeframe, since=start_date, limit=1000)
-
-            if bars:
-                for bar in bars:
-                    cursor.execute('''
-                    INSERT OR REPLACE INTO ohlcv_data 
-                    (symbol, timestamp, timeframe, open, high, low, close, volume)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        symbol.split('/')[0],
-                        bar[0],
-                        timeframe,
-                        bar[1],
-                        bar[2],
-                        bar[3],
-                        bar[4],
-                        bar[5]
-                    ))
-
-                conn.commit()
-                print(f"{symbol} - {timeframe}: {len(bars)} mum verisi kaydedildi")
-
-            time.sleep(1)  # Rate limit için bekle
-
-        except Exception as e:
-            print(f"Hata ({symbol} - {timeframe}): {str(e)}")
-            continue
-
-    conn.close()
-
-
 def calculateATR(high_array, low_array, close_array, period):
     """
     Manuel ATR (Average True Range) hesaplama fonksiyonu
     """
     atr = []
     tr_list = []
-    
+
     for i in range(len(close_array)):
         if i == 0:
-            # İlk eleman için True Range sadece High - Low
             tr = high_array[i] - low_array[i]
         else:
-            # Diğer elemanlar için True Range hesabı
             tr1 = high_array[i] - low_array[i]
-            tr2 = abs(high_array[i] - close_array[i-1])
-            tr3 = abs(low_array[i] - close_array[i-1])
+            tr2 = abs(high_array[i] - close_array[i - 1])
+            tr3 = abs(low_array[i] - close_array[i - 1])
             tr = max(tr1, tr2, tr3)
-        
+
         tr_list.append(tr)
-        
-        if i < period:
-            # İlk period-1 eleman için ATR hesabı yapılmaz
+
+        if i < period - 1:
             atr.append(float('nan'))
-        elif i == period:
-            # period. eleman için ilk ATR hesabı (basit ortalama)
+        elif i == period - 1:
             atr.append(sum(tr_list[:period]) / period)
         else:
-            # Diğer elemanlar için ATR hesabı (Wilder's smoothing method)
             atr.append(((period - 1) * atr[-1] + tr) / period)
-    
+
     return atr
 
 
 def generateSupertrend(close_array, high_array, low_array, atr_period, atr_multiplier):
     try:
-        # ta modülü yerine kendi ATR hesaplama fonksiyonumuzu kullanıyoruz
         atr = calculateATR(high_array, low_array, close_array, atr_period)
     except Exception as Error:
         print("[ERROR] ", Error)
-        # Hata durumunda boş bir liste döndür
         return [0] * len(close_array)
 
     previous_final_upperband = 0
@@ -300,20 +261,26 @@ def generateSupertrend(close_array, high_array, low_array, atr_period, atr_multi
     supertrendc = 0
 
     for i in range(0, len(close_array)):
-        if np.isnan(close_array[i]):
-            pass
+        if np.isnan(close_array[i]) or np.isnan(atr[i]):
+            supertrend.append(float('nan'))
+            continue
+
+        highc = high_array[i]
+        lowc = low_array[i]
+        atrc = atr[i]
+        closec = close_array[i]
+
+        if math.isnan(atrc):
+            atrc = 0
+
+        basic_upperband = (highc + lowc) / 2 + atr_multiplier * atrc
+        basic_lowerband = (highc + lowc) / 2 - atr_multiplier * atrc
+
+        if i == 0:
+            final_upperband = basic_upperband
+            final_lowerband = basic_lowerband
+            supertrendc = basic_upperband
         else:
-            highc = high_array[i]
-            lowc = low_array[i]
-            atrc = atr[i]
-            closec = close_array[i]
-
-            if math.isnan(atrc):
-                atrc = 0
-
-            basic_upperband = (highc + lowc) / 2 + atr_multiplier * atrc
-            basic_lowerband = (highc + lowc) / 2 - atr_multiplier * atrc
-
             if basic_upperband < previous_final_upperband or previous_close > previous_final_upperband:
                 final_upperband = basic_upperband
             else:
@@ -326,342 +293,387 @@ def generateSupertrend(close_array, high_array, low_array, atr_period, atr_multi
 
             if previous_supertrend == previous_final_upperband and closec <= final_upperband:
                 supertrendc = final_upperband
-            else:
-                if previous_supertrend == previous_final_upperband and closec >= final_upperband:
-                    supertrendc = final_lowerband
-                else:
-                    if previous_supertrend == previous_final_lowerband and closec >= final_lowerband:
-                        supertrendc = final_lowerband
-                    elif previous_supertrend == previous_final_lowerband and closec <= final_lowerband:
-                        supertrendc = final_upperband
+            elif previous_supertrend == previous_final_upperband and closec > final_upperband:
+                supertrendc = final_lowerband
+            elif previous_supertrend == previous_final_lowerband and closec >= final_lowerband:
+                supertrendc = final_lowerband
+            elif previous_supertrend == previous_final_lowerband and closec < final_lowerband:
+                supertrendc = final_upperband
 
-            supertrend.append(supertrendc)
+        supertrend.append(supertrendc)
 
-            previous_close = closec
-            previous_final_upperband = final_upperband
-            previous_final_lowerband = final_lowerband
-            previous_supertrend = supertrendc
+        previous_close = closec
+        previous_final_upperband = final_upperband
+        previous_final_lowerband = final_lowerband
+        previous_supertrend = supertrendc
 
     return supertrend
 
 
-def backtest_strategy(df, atr_period, atr_multiplier):
-    # Değişkenlerin doğru yerlerinde tanımlanması
-    bakiye = 100.0
-    leverage_ust = 50
-    lev_ust = 50
-    yuzde_ust = 50
-    yuzde = 0
-    yuz_ust = 50
-    islemsonu = [[0 for x in range(yuz_ust * 2 + 1)] for y in range(lev_ust + 1)]
-    basarili_islem = [[0 for x in range(yuz_ust * 2 + 1)] for y in range(lev_ust + 1)]
-    basarisiz_islem = [[0 for x in range(yuz_ust * 2 + 1)] for y in range(lev_ust + 1)]
-    
-    opn = df["open"]
-    high = df["high"]
-    low = df["low"]
-    clse = df["close"]
+def deneme(zamanAraligi, df, lim):
+    print(f"Supertrend ve Hacim BOT - {zamanAraligi}\n")
 
-    close_array = np.asarray(clse)
-    high_array = np.asarray(high)
-    low_array = np.asarray(low)
+    if df.empty or len(df) < 50:
+        print(f"Yetersiz veri: {len(df)} satır")
+        return {
+            'balance': {'leverage': 1, 'stop_percentage': 0.5, 'kar_al_percentage': 0.5,
+                        'atr_period': 10, 'atr_multiplier': 3, 'successful_trades': 0,
+                        'unsuccessful_trades': 0, 'final_balance': 100.0, 'success_rate': 0},
+            'success_rate': {'leverage': 1, 'stop_percentage': 0.5, 'kar_al_percentage': 0.5,
+                             'atr_period': 10, 'atr_multiplier': 3, 'successful_trades': 0,
+                             'unsuccessful_trades': 0, 'final_balance': 100.0, 'success_rate': 0}
+        }
 
-    close_array = close_array.astype(float)
-    high_array = high_array.astype(float)
-    low_array = low_array.astype(float)
-    
-    supertrend = generateSupertrend(close_array, high_array, low_array, atr_period, atr_multiplier)
-    
-    yuzde = 0
-    while yuzde <= yuzde_ust:
-        stop = 0
-        likit = 0
-        leverage = 1
+    # Veri türlerini kontrol et ve dönüştür
+    df = df.copy()
+    df['open'] = pd.to_numeric(df['open'], errors='coerce')
+    df['high'] = pd.to_numeric(df['high'], errors='coerce')
+    df['low'] = pd.to_numeric(df['low'], errors='coerce')
+    df['close'] = pd.to_numeric(df['close'], errors='coerce')
+
+    # NaN değerleri kontrol et
+    if df[['open', 'high', 'low', 'close']].isnull().any().any():
+        print("NaN değerler bulundu, temizleniyor...")
+        df = df.dropna(subset=['open', 'high', 'low', 'close'])
+
+    if len(df) < 50:
+        print("Temizleme sonrası yetersiz veri")
+        return {
+            'balance': {'leverage': 1, 'stop_percentage': 0.5, 'kar_al_percentage': 0.5,
+                        'atr_period': 10, 'atr_multiplier': 3, 'successful_trades': 0,
+                        'unsuccessful_trades': 0, 'final_balance': 100.0, 'success_rate': 0},
+            'success_rate': {'leverage': 1, 'stop_percentage': 0.5, 'kar_al_percentage': 0.5,
+                             'atr_period': 10, 'atr_multiplier': 3, 'successful_trades': 0,
+                             'unsuccessful_trades': 0, 'final_balance': 100.0, 'success_rate': 0}
+        }
+
+    # Reset index after cleaning
+    df = df.reset_index(drop=True)
+    lim = len(df)
+
+    close_array = df["close"].values.astype(float)
+    high_array = df["high"].values.astype(float)
+    low_array = df["low"].values.astype(float)
+    open_array = df["open"].values.astype(float)
+
+    # En iyi sonuçları takip etmek için
+    best_balance_result = {
+        'leverage': 1, 'stop_percentage': 0.5, 'kar_al_percentage': 0.5,
+        'atr_period': 10, 'atr_multiplier': 3, 'successful_trades': 0,
+        'unsuccessful_trades': 0, 'final_balance': 100.0, 'success_rate': 0
+    }
+
+    best_success_rate_result = {
+        'leverage': 1, 'stop_percentage': 0.5, 'kar_al_percentage': 0.5,
+        'atr_period': 10, 'atr_multiplier': 3, 'successful_trades': 0,
+        'unsuccessful_trades': 0, 'final_balance': 100.0, 'success_rate': 0
+    }
+
+    # Optimizasyon döngüleri
+    for atr_period in range(1,21):  # ATR dönemleri
+        for atr_multiplier in range(1,11):  # ATR çarpanları
+            # Supertrend hesapla
+            supertrend = generateSupertrend(close_array, high_array, low_array, atr_period, atr_multiplier)
+
+            # NaN kontrolü
+            supertrend_series = pd.Series(supertrend)
+            if supertrend_series.isnull().any():
+                continue
+
+            for leverage in range(1, 51):  # 1-10 kaldıraç
+                for stop_pct in [i * 0.5 for i in range(1, 101)]:  # 0.5-50% stop
+                    for kar_al_pct in [i * 0.5 for i in range(1, 101)]:  # 0.5-50% kar al
+
+                        initial_balance = 100.0
+                        balance = initial_balance
+                        successful_trades = 0
+                        unsuccessful_trades = 0
+
+                        i = atr_period + 3  # Başlangıç indeksi
+
+                        while i < lim - 3:
+                            if balance <= 0:
+                                break
+
+                            # Supertrend sinyali kontrolü
+                            current_close = close_array[i]
+                            prev_close = close_array[i - 1]
+                            current_st = supertrend[i]
+                            prev_st = supertrend[i - 1]
+
+                            trade_direction = None
+                            entry_price = None
+
+                            # Long sinyal - Renk yeşile dönüyor
+                            if current_close > current_st and prev_close <= prev_st:
+                                trade_direction = "LONG"
+                                entry_price = open_array[i + 1] if i + 1 < len(open_array) else current_close
+
+                            # Short sinyal - Renk kırmızıya dönüyor
+                            elif current_close < current_st and prev_close >= prev_st:
+                                trade_direction = "SHORT"
+                                entry_price = open_array[i + 1] if i + 1 < len(open_array) else current_close
+
+                            if trade_direction and entry_price:
+                                # İşlem açıldı
+                                j = i + 1
+                                trade_closed = False
+
+                                while j < lim and not trade_closed:
+                                    current_high = high_array[j]
+                                    current_low = low_array[j]
+                                    current_close_j = close_array[j]
+                                    current_st_j = supertrend[j]
+                                    prev_close_j = close_array[j - 1] if j > 0 else current_close_j
+                                    prev_st_j = supertrend[j - 1] if j > 0 else current_st_j
+
+                                    if trade_direction == "LONG":
+                                        # Likit kontrolü
+                                        loss_pct = (current_low - entry_price) / entry_price * 100
+                                        if loss_pct <= -90 / leverage:
+                                            balance = 0
+                                            unsuccessful_trades += 1
+                                            trade_closed = True
+                                            break
+
+                                        # Stop loss kontrolü
+                                        elif loss_pct <= -stop_pct:
+                                            balance += balance * (-stop_pct / 100) * leverage
+                                            unsuccessful_trades += 1
+                                            trade_closed = True
+
+                                        # Kar al kontrolü
+                                        profit_pct = (current_high - entry_price) / entry_price * 100
+                                        if profit_pct >= kar_al_pct:
+                                            balance += balance * (kar_al_pct / 100) * leverage
+                                            successful_trades += 1
+                                            trade_closed = True
+
+                                        # Sinyal ile çıkış - Short sinyali
+                                        elif current_close_j < current_st_j and prev_close_j >= prev_st_j:
+                                            exit_price = open_array[j + 1] if j + 1 < len(
+                                                open_array) else current_close_j
+                                            profit_pct = (exit_price - entry_price) / entry_price * 100
+                                            balance += balance * (profit_pct / 100) * leverage
+                                            if profit_pct > 0:
+                                                successful_trades += 1
+                                            else:
+                                                unsuccessful_trades += 1
+                                            trade_closed = True
+
+                                    elif trade_direction == "SHORT":
+                                        # Likit kontrolü
+                                        loss_pct = (current_high - entry_price) / entry_price * 100
+                                        if loss_pct >= 90 / leverage:
+                                            balance = 0
+                                            unsuccessful_trades += 1
+                                            trade_closed = True
+                                            break
+
+                                        # Stop loss kontrolü
+                                        elif loss_pct >= stop_pct:
+                                            balance += balance * (-stop_pct / 100) * leverage
+                                            unsuccessful_trades += 1
+                                            trade_closed = True
+
+                                        # Kar al kontrolü
+                                        profit_pct = (entry_price - current_low) / entry_price * 100
+                                        if profit_pct >= kar_al_pct:
+                                            balance += balance * (kar_al_pct / 100) * leverage
+                                            successful_trades += 1
+                                            trade_closed = True
+
+                                        # Sinyal ile çıkış - Long sinyali
+                                        elif current_close_j > current_st_j and prev_close_j <= prev_st_j:
+                                            exit_price = open_array[j + 1] if j + 1 < len(
+                                                open_array) else current_close_j
+                                            profit_pct = (entry_price - exit_price) / entry_price * 100
+                                            balance += balance * (profit_pct / 100) * leverage
+                                            if profit_pct > 0:
+                                                successful_trades += 1
+                                            else:
+                                                unsuccessful_trades += 1
+                                            trade_closed = True
+
+                                    j += 1
+
+                                i = j if trade_closed else i + 1
+                            else:
+                                i += 1
+
+                        # Sonuçları değerlendir
+                        total_trades = successful_trades + unsuccessful_trades
+                        success_rate = (successful_trades / total_trades * 100) if total_trades > 0 else 0
+
+                        # En iyi bakiye sonucunu güncelle
+                        if balance > best_balance_result['final_balance']:
+                            best_balance_result = {
+                                'leverage': leverage,
+                                'stop_percentage': stop_pct,
+                                'kar_al_percentage': kar_al_pct,
+                                'atr_period': atr_period,
+                                'atr_multiplier': atr_multiplier,
+                                'successful_trades': successful_trades,
+                                'unsuccessful_trades': unsuccessful_trades,
+                                'final_balance': balance,
+                                'success_rate': success_rate
+                            }
+
+                        # En iyi başarı oranı sonucunu güncelle
+                        if success_rate > best_success_rate_result['success_rate'] and total_trades >= 10:
+                            best_success_rate_result = {
+                                'leverage': leverage,
+                                'stop_percentage': stop_pct,
+                                'kar_al_percentage': kar_al_pct,
+                                'atr_period': atr_period,
+                                'atr_multiplier': atr_multiplier,
+                                'successful_trades': successful_trades,
+                                'unsuccessful_trades': unsuccessful_trades,
+                                'final_balance': balance,
+                                'success_rate': success_rate
+                            }
+
+    return {
+        'balance': best_balance_result,
+        'success_rate': best_success_rate_result
+    }
+
+
+async def main():
+    # Veritabanı bağlantısı oluştur
+    conn = create_db_connection()
+
+    for symbol in symbols:
+        s = symbols.index(symbol)
         a = 0
-        
-        # Kaldıraç döngüsü
-        while leverage <= leverage_ust:
-            bakiye = 100.0
-            x = atr_period + 2 + 3
-            stop = 0
-            likit = 0
-            islem = 0
-            basarili = 0
-            basarisiz = 0
-            
-            # Ana işlem döngüsü
-            while x < len(df) - (atr_period + 2 + 3):
-                depo = 0
-                son_kapanis = close_array[x - 2]
-                onceki_kapanis = close_array[x - 3]
-                son_supertrend_deger = supertrend[x - 2]
-                onceki_supertrend_deger = supertrend[x - 3]
-                
-                # Renk yeşile dönüyor, Supertrend yükselişe geçti
-                if son_kapanis > son_supertrend_deger and onceki_kapanis < onceki_supertrend_deger:
-                    islem = islem + 1
-                    giris = float(df["open"][x])
-                    y = 0
-                    
-                    while True:
-                        son_kapanis = close_array[x + y - 2]
-                        onceki_kapanis = close_array[x + y - 3]
-                        son_supertrend_deger = supertrend[x + y - 2]
-                        onceki_supertrend_deger = supertrend[x + y - 3]
+        # Bugünün tarihini al ve ondan geriye doğru git
+        end_date = int(datetime.now().timestamp() * 1000)
+        # Belirtilen gün sayısı kadar geriye git
+        start_date = end_date - (ANALYSIS_DAYS * 86400 * 1000)
 
-                        # Likit olma durumu
-                        if ((float(df["low"][x + y]) - giris) / giris * 100 <= (-1) * (90 / float(leverage))):
-                            bakiye = 0
-                            likit = 1
-                            basarisiz = basarisiz + 1
-                            if y == 0:
-                                x = x + y
-                            else:
-                                x = x + y - 1
-                            break
+        print(f"\n{symbol} için veri çekme işlemi başlıyor...")
+        print(f"Başlangıç Tarihi: {datetime.fromtimestamp(start_date / 1000).strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Bitiş Tarihi: {datetime.fromtimestamp(end_date / 1000).strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Toplam {ANALYSIS_DAYS} gün için veri çekilecek\n")
 
-                        # Stop olma durumu
-                        if ((float(df["high"][x + y]) - giris) / giris * 100 >= yuzde) and yuzde != 0:
-                            basarili = basarili + 1
-                            bakiye = bakiye - bakiye * yuzde / 100 * leverage
-                            stop = 1
-                            if y == 0:
-                                x = x + y
-                            else:
-                                x = x + y - 1
-                            break
+        # Boş DataFrame'leri oluştur
+        timeframes = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w"]
+        dataframes = {}
 
-                        # Sinyal ile çıkış durumu
-                        if son_kapanis < son_supertrend_deger and onceki_kapanis > onceki_supertrend_deger:
-                            son = bakiye + bakiye * (float(df["open"][x + y]) - giris) / giris * leverage
-                            if son < bakiye:
-                                basarisiz = basarisiz + 1
-                            else:
-                                basarili = basarili + 1
-                            bakiye = bakiye + bakiye * (float(df["open"][x + y]) - giris) / giris * leverage
-                            if y == 0:
-                                x = x + y
-                            else:
-                                x = x + y - 1
-                            break
+        for tf in timeframes:
+            dataframes[tf] = pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
 
-                        y = y + 1
-
-                        # Dizi sonunda döngüden çıkılsın
-                        if (x + y) == len(df):
-                            depo = x + y - 2
-                            break
-
-                # Renk kırmızıya dönüyor, Supertrend düşüşe geçti
-                elif son_kapanis < son_supertrend_deger and onceki_kapanis > onceki_supertrend_deger:
-                    islem = islem + 1
-                    giris = float(df["open"][x])
-                    y = 0
-                    
-                    while True:
-                        son_kapanis = close_array[x + y - 2]
-                        onceki_kapanis = close_array[x + y - 3]
-                        son_supertrend_deger = supertrend[x + y - 2]
-                        onceki_supertrend_deger = supertrend[x + y - 3]
-
-                        # Likit olma durumu
-                        if ((float(df["high"][x + y]) - giris) / giris * 100 >= (90 / float(leverage))):
-                            bakiye = 0
-                            likit = 1
-                            basarisiz = basarisiz + 1
-                            if y == 0:
-                                x = x + y
-                            else:
-                                x = x + y - 1
-                            break
-
-                        # Stop olma durumu
-                        if ((float(df["low"][x + y]) - giris) / giris * 100 <= yuzde * (-1)) and yuzde != 0:
-                            basarili = basarili + 1
-                            bakiye = bakiye - bakiye * yuzde / 100 * leverage
-                            stop = 1
-                            if y == 0:
-                                x = x + y
-                            else:
-                                x = x + y - 1
-                            break
-
-                        # Sinyal ile çıkış durumu
-                        if son_kapanis > son_supertrend_deger and onceki_kapanis < onceki_supertrend_deger:
-                            son = bakiye + bakiye * (float(df["open"][x + y]) - giris) / giris * (-1) * leverage
-                            if son < bakiye:
-                                basarisiz = basarisiz + 1
-                            else:
-                                basarili = basarili + 1
-                            bakiye = bakiye + bakiye * (float(df["open"][x + y]) - giris) / giris * (-1) * leverage
-                            if y == 0:
-                                x = x + y
-                            else:
-                                x = x + y - 1
-                            break
-
-                        y = y + 1
-
-                        # Dizi sonunda döngüden çıkılsın
-                        if (x + y) == len(df):
-                            depo = x + y - 2
-                            break
-
-                x = x + 1
-
-                # Likit durumu dizi döngüsünden çıkılsın
-                if likit == 1:
-                    leverage_ust = leverage
-                    break
-
-            islemsonu[int(leverage - 1)][a] = bakiye
-            basarili_islem[int(leverage - 1)][a] = basarili
-            basarisiz_islem[int(leverage - 1)][a] = basarisiz
-
-            # Likit olduysa kaldıraç döngüsünden çıkılsın
-            if likit == 1:
-                leverage_ust = leverage
-                while leverage < lev_ust:
-                    islemsonu[int(leverage)][a] = 0
-                    basarili_islem[int(leverage)][a] = 0
-                    basarisiz_islem[int(leverage)][a] = 0
-                    leverage = leverage + 1
-                break
-            basarili = 0
-            basarisiz = 0
-            leverage = leverage + 1
-
-            # Stop çalışmadıysa yüzde döngüsünden çıkılsın
-            if stop == 0:
-                break
-
-        lev = leverage_ust
-
-        # Stop çalışmadıysa yüzde döngüsünden çıkılsın
-        if stop == 0:
-            yuzde_ust = yuzde
-            while leverage_ust < lev_ust:
-                b = a
-                while b < yuz_ust * 2:
-                    islemsonu[int(leverage_ust)][b] = 0
-                    basarili_islem[int(leverage_ust)][b] = 0
-                    basarisiz_islem[int(leverage_ust)][b] = 0
-                    b = b + 1
-                leverage_ust = leverage_ust + 1
-            break
-
-        yuzde = yuzde + 0.5
-        a = a + 1
-        leverage_ust = lev - 1
-
-    # En iyi sonucu bul
-    tahmin = []
-    leverage = 0
-    while leverage < lev_ust:
-        tahmin.append(max(islemsonu[leverage]))
-        leverage = leverage + 1
-
-    leverage = 0
-    while leverage < lev_ust:
-        k = 1
-        while k <= len(islemsonu[leverage]):
-            if islemsonu[int(leverage)][int(k - 1)] == max(tahmin):
-                return {
-                    'leverage': leverage + 1,
-                    'stop_percentage': k / 2,
-                    'atr_period': atr_period,
-                    'atr_multiplier': atr_multiplier,
-                    'successful_trades': basarili_islem[leverage][k - 1],
-                    'unsuccessful_trades': basarisiz_islem[leverage][k - 1],
-                    'final_balance': islemsonu[int(leverage)][int(k - 1)]
-                }
-            k = k + 1
-        leverage = leverage + 1
-
-
-def analyze_symbol_timeframe(symbol, timeframe):
-    """Tek bir sembol ve timeframe için analiz yap"""
-    try:
-        conn = sqlite3.connect('crypto_data.db')
-        cursor = conn.cursor()
-
-        # Verileri çek
-        cursor.execute('''
-        SELECT timestamp, open, high, low, close, volume 
-        FROM ohlcv_data 
-        WHERE symbol = ? AND timeframe = ? 
-        ORDER BY timestamp
-        ''', (symbol, timeframe))
-
-        rows = cursor.fetchall()
-        if not rows:
-            print(f"Veri bulunamadı: {symbol} - {timeframe}")
-            return None
-
-        df = pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close", "volume"])
-
-        best_result = None
-        # Her ATR kombinasyonu için test et
-        for atr_period, atr_multiplier in product(ATR_PERIODS, ATR_MULTIPLIERS):
-            print(f"Test ediliyor: {symbol} - {timeframe} - ATR({atr_period}, {atr_multiplier})")
-            result = backtest_strategy(df, atr_period, atr_multiplier)
-            if not best_result or result['final_balance'] > best_result['final_balance']:
-                best_result = result
-                best_result['symbol'] = symbol
-                best_result['timeframe'] = timeframe
-
-        if best_result:
-            # En iyi sonucu veritabanına kaydet
-            save_results_to_db(**best_result)
-            print(f"En iyi sonuç kaydedildi: {symbol} - {timeframe}")
-            print(f"Bakiye: {best_result['final_balance']}, Kaldıraç: {best_result['leverage']}, "
-                  f"Stop: {best_result['stop_percentage']}, ATR Period: {best_result['atr_period']}, "
-                  f"ATR Multiplier: {best_result['atr_multiplier']}")
-
-        return best_result
-
-    except Exception as e:
-        print(f"Analiz hatası ({symbol} - {timeframe}): {str(e)}")
-        return None
-    finally:
-        conn.close()
-
-
-def parallel_analysis(symbol_group):
-    """Bir grup sembol için paralel analiz yap"""
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        futures = []
-        for symbol in symbol_group:
-            for timeframe in TIMEFRAMES:
-                symbol_name = symbol.split('/')[0]
-                futures.append(
-                    executor.submit(analyze_symbol_timeframe, symbol_name, timeframe)
-                )
-
-        for future in concurrent.futures.as_completed(futures):
+        while a < ANALYSIS_DAYS:
             try:
-                result = future.result()
-                if result:
-                    print(f"Analiz tamamlandı: {result['symbol']} - {result['timeframe']}")
+                progress = (a / ANALYSIS_DAYS) * 100
+                print(f"İlerleme: %{progress:.1f} - Gün {a + 1}/{ANALYSIS_DAYS} - {symbol} için veri çekiliyor...")
+
+                current_date = start_date + (a * 86400 * 1000)
+
+                # Her timeframe için veri çek
+                timeframe_limits = {
+                    "1m": 1440, "3m": 480, "5m": 288, "15m": 96, "30m": 48,
+                    "1h": 24, "2h": 12, "4h": 6, "1d": 1
+                }
+
+                for tf, limit in timeframe_limits.items():
+                    try:
+                        bars = exchange.fetch_ohlcv(symbol, timeframe=tf, since=current_date, limit=limit)
+                        if bars:
+                            temp_df = pd.DataFrame(bars,
+                                                   columns=["timestamp", "open", "high", "low", "close", "volume"])
+                            dataframes[tf] = pd.concat([dataframes[tf], temp_df], ignore_index=True)
+                    except Exception as e:
+                        print(f"{tf} veri çekilirken hata: {e}")
+
+                time.sleep(0.5)
+
             except Exception as e:
-                print(f"Analiz hatası: {str(e)}")
+                print(f"Gün {a + 1} için veri çekilirken genel hata oluştu: {e}")
+
+            a += 1
+
+        print(f"\n{symbol} için tüm veriler çekildi. Analiz başlıyor...")
+
+        # 1w verisini ayrıca çek
+        try:
+            bars = exchange.fetch_ohlcv(symbol, timeframe="1w", since=start_date, limit=int(lim_olustur("1w")))
+            dataframes["1w"] = pd.DataFrame(bars, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        except Exception as e:
+            print(f"1w veri çekme hatası: {e}")
+
+        # Verileri veritabanına kaydet
+        for tf, df in dataframes.items():
+            if not df.empty:
+                try:
+                    save_to_db(conn, symbolName[s], df, tf)
+                except Exception as e:
+                    print(f"{tf} veritabanına kaydetme hatası: {e}")
+
+        # Analiz yap
+        for tf, df in dataframes.items():
+            if not df.empty and len(df) > 50:
+                try:
+                    print(f"\n{tf} timeframe için analiz yapılıyor...")
+                    results = deneme(tf, df, len(df))
+
+                    # Bakiye optimizasyonu sonuçlarını kaydet
+                    balance_result = results['balance']
+                    save_results_to_db(
+                        symbolName[s], tf,
+                        balance_result['leverage'],
+                        balance_result['stop_percentage'],
+                        balance_result['kar_al_percentage'],
+                        balance_result['atr_period'],
+                        balance_result['atr_multiplier'],
+                        balance_result['successful_trades'],
+                        balance_result['unsuccessful_trades'],
+                        balance_result['final_balance'],
+                        'balance'
+                    )
+
+                    # Başarı oranı optimizasyonu sonuçlarını kaydet
+                    success_result = results['success_rate']
+                    save_results_to_db(
+                        symbolName[s], tf,
+                        success_result['leverage'],
+                        success_result['stop_percentage'],
+                        success_result['kar_al_percentage'],
+                        success_result['atr_period'],
+                        success_result['atr_multiplier'],
+                        success_result['successful_trades'],
+                        success_result['unsuccessful_trades'],
+                        success_result['final_balance'],
+                        'success_rate'
+                    )
+
+                    print(f"{tf} - BAKIYE OPTİMİZASYONU:")
+                    print(f"  Kaldıraç: {balance_result['leverage']}, Stop: {balance_result['stop_percentage']}%, "
+                          f"Kar Al: {balance_result['kar_al_percentage']}%")
+                    print(f"  ATR: {balance_result['atr_period']}/{balance_result['atr_multiplier']}")
+                    print(
+                        f"  Başarılı: {balance_result['successful_trades']}, Başarısız: {balance_result['unsuccessful_trades']}")
+                    print(
+                        f"  Son Bakiye: {balance_result['final_balance']:.2f}, Başarı Oranı: %{balance_result['success_rate']:.2f}")
+
+                    print(f"{tf} - BAŞARI ORANI OPTİMİZASYONU:")
+                    print(f"  Kaldıraç: {success_result['leverage']}, Stop: {success_result['stop_percentage']}%, "
+                          f"Kar Al: {success_result['kar_al_percentage']}%")
+                    print(f"  ATR: {success_result['atr_period']}/{success_result['atr_multiplier']}")
+                    print(
+                        f"  Başarılı: {success_result['successful_trades']}, Başarısız: {success_result['unsuccessful_trades']}")
+                    print(
+                        f"  Son Bakiye: {success_result['final_balance']:.2f}, Başarı Oranı: %{success_result['success_rate']:.2f}")
+
+                except Exception as e:
+                    print(f"{tf} analiz hatası: {e}")
+
+    # Veritabanı bağlantısını kapat
+    conn.close()
+    print("\nTüm analizler tamamlandı!")
 
 
 if __name__ == "__main__":
-    if args.mode == 'collect':
-        print("Veri toplama modu başlatılıyor...")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            executor.map(collect_data_for_symbol, SYMBOLS)
-        print("Veri toplama tamamlandı.")
+    import asyncio
 
-    elif args.mode == 'analyze':
-        if not args.batch:
-            print("Analiz için --batch parametresi gerekli (1-3)")
-            sys.exit(1)
-
-        batch_idx = args.batch - 1
-        print(f"Analiz modu başlatılıyor... (Grup {args.batch})")
-        print(f"İşlenecek semboller: {SYMBOL_GROUPS[batch_idx]}")
-
-        parallel_analysis(SYMBOL_GROUPS[batch_idx])
-        print(f"Grup {args.batch} analizi tamamlandı.")
+    asyncio.run(main())
