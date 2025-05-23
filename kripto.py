@@ -540,37 +540,43 @@ def deneme(zamanAraligi, df, lim):
 
 
 async def main():
-    # Veritabanı bağlantısı oluştur
     conn = create_db_connection()
+    cursor = conn.cursor()
 
-    for symbol in symbols:
-        s = symbols.index(symbol)
-        a = 0
-        # Bugünün tarihini al ve ondan geriye doğru git
-        end_date = int(datetime.now().timestamp() * 1000)
-        # Belirtilen gün sayısı kadar geriye git
-        start_date = end_date - (ANALYSIS_DAYS * 86400 * 1000)
+    if os.path.exists("crypto_data.db"):
+        print("Veritabanı bulundu. API'den veri çekilmeyecek, mevcut verilerle analiz yapılacak.")
 
-        print(f"\n{symbol} için veri çekme işlemi başlıyor...")
-        print(f"Başlangıç Tarihi: {datetime.fromtimestamp(start_date / 1000).strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Bitiş Tarihi: {datetime.fromtimestamp(end_date / 1000).strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Toplam {ANALYSIS_DAYS} gün için veri çekilecek\n")
+        for symbol in symbols:
+            dataframes = {}
+            for tf in ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w"]:
+                try:
+                    df = pd.read_sql_query(
+                        "SELECT * FROM ohlcv_data WHERE symbol = ? AND timeframe = ?",
+                        conn,
+                        params=(symbol, tf)
+                    )
+                    dataframes[tf] = df
+                except Exception as e:
+                    print(f"{symbol} - {tf} verisi analiz edilirken hata: {e}")
 
-        # Boş DataFrame'leri oluştur
-        timeframes = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w"]
-        dataframes = {}
+            await analyze_symbol(symbol, dataframes)
 
-        for tf in timeframes:
-            dataframes[tf] = pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+    else:
+        for symbol in symbols:
+            print(f"\n{symbol} için veri çekme işlemi başlıyor...")
+            s = symbols.index(symbol)
+            dataframes = {tf: pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+                          for tf in ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w"]}
 
-        while a < ANALYSIS_DAYS:
-            try:
+            end_date = int(datetime.now().timestamp() * 1000)
+            start_date = end_date - (ANALYSIS_DAYS * 86400 * 1000)
+
+            a = 0
+            while a < ANALYSIS_DAYS:
+                current_date = start_date + (a * 86400 * 1000)
                 progress = (a / ANALYSIS_DAYS) * 100
                 print(f"İlerleme: %{progress:.1f} - Gün {a + 1}/{ANALYSIS_DAYS} - {symbol} için veri çekiliyor...")
 
-                current_date = start_date + (a * 86400 * 1000)
-
-                # Her timeframe için veri çek
                 timeframe_limits = {
                     "1m": 1440, "3m": 480, "5m": 288, "15m": 96, "30m": 48,
                     "1h": 24, "2h": 12, "4h": 6, "1d": 1
@@ -584,96 +590,64 @@ async def main():
                                                    columns=["timestamp", "open", "high", "low", "close", "volume"])
                             dataframes[tf] = pd.concat([dataframes[tf], temp_df], ignore_index=True)
                     except Exception as e:
-                        print(f"{tf} veri çekilirken hata: {e}")
+                        print(f"{symbol} - {tf} veri çekilirken hata: {e}")
 
                 time.sleep(0.5)
+                a += 1
 
+            # 1w için ayrı veri çekme
+            try:
+                bars = exchange.fetch_ohlcv(symbol, timeframe="1w", since=start_date, limit=int(lim_olustur("1w")))
+                dataframes["1w"] = pd.DataFrame(bars, columns=["timestamp", "open", "high", "low", "close", "volume"])
             except Exception as e:
-                print(f"Gün {a + 1} için veri çekilirken genel hata oluştu: {e}")
+                print(f"{symbol} - 1w veri çekme hatası: {e}")
 
-            a += 1
+            # Verileri kaydet
+            for tf, df in dataframes.items():
+                if not df.empty:
+                    try:
+                        save_to_db(conn, symbol, df, tf)
+                    except Exception as e:
+                        print(f"{symbol} - {tf} veritabanına kaydetme hatası: {e}")
 
-        print(f"\n{symbol} için tüm veriler çekildi. Analiz başlıyor...")
+            await analyze_symbol(symbol, dataframes)
 
-        # 1w verisini ayrıca çek
-        try:
-            bars = exchange.fetch_ohlcv(symbol, timeframe="1w", since=start_date, limit=int(lim_olustur("1w")))
-            dataframes["1w"] = pd.DataFrame(bars, columns=["timestamp", "open", "high", "low", "close", "volume"])
-        except Exception as e:
-            print(f"1w veri çekme hatası: {e}")
-
-        # Verileri veritabanına kaydet
-        for tf, df in dataframes.items():
-            if not df.empty:
-                try:
-                    save_to_db(conn, symbolName[s], df, tf)
-                except Exception as e:
-                    print(f"{tf} veritabanına kaydetme hatası: {e}")
-
-        # Analiz yap
-        for tf, df in dataframes.items():
-            if not df.empty and len(df) > 50:
-                try:
-                    print(f"\n{tf} timeframe için analiz yapılıyor...")
-                    results = deneme(tf, df, len(df))
-
-                    # Bakiye optimizasyonu sonuçlarını kaydet
-                    balance_result = results['balance']
-                    save_results_to_db(
-                        symbolName[s], tf,
-                        balance_result['leverage'],
-                        balance_result['stop_percentage'],
-                        balance_result['kar_al_percentage'],
-                        balance_result['atr_period'],
-                        balance_result['atr_multiplier'],
-                        balance_result['successful_trades'],
-                        balance_result['unsuccessful_trades'],
-                        balance_result['final_balance'],
-                        'balance'
-                    )
-
-                    # Başarı oranı optimizasyonu sonuçlarını kaydet
-                    success_result = results['success_rate']
-                    save_results_to_db(
-                        symbolName[s], tf,
-                        success_result['leverage'],
-                        success_result['stop_percentage'],
-                        success_result['kar_al_percentage'],
-                        success_result['atr_period'],
-                        success_result['atr_multiplier'],
-                        success_result['successful_trades'],
-                        success_result['unsuccessful_trades'],
-                        success_result['final_balance'],
-                        'success_rate'
-                    )
-
-                    print(f"{tf} - BAKIYE OPTİMİZASYONU:")
-                    print(f"  Kaldıraç: {balance_result['leverage']}, Stop: {balance_result['stop_percentage']}%, "
-                          f"Kar Al: {balance_result['kar_al_percentage']}%")
-                    print(f"  ATR: {balance_result['atr_period']}/{balance_result['atr_multiplier']}")
-                    print(
-                        f"  Başarılı: {balance_result['successful_trades']}, Başarısız: {balance_result['unsuccessful_trades']}")
-                    print(
-                        f"  Son Bakiye: {balance_result['final_balance']:.2f}, Başarı Oranı: %{balance_result['success_rate']:.2f}")
-
-                    print(f"{tf} - BAŞARI ORANI OPTİMİZASYONU:")
-                    print(f"  Kaldıraç: {success_result['leverage']}, Stop: {success_result['stop_percentage']}%, "
-                          f"Kar Al: {success_result['kar_al_percentage']}%")
-                    print(f"  ATR: {success_result['atr_period']}/{success_result['atr_multiplier']}")
-                    print(
-                        f"  Başarılı: {success_result['successful_trades']}, Başarısız: {success_result['unsuccessful_trades']}")
-                    print(
-                        f"  Son Bakiye: {success_result['final_balance']:.2f}, Başarı Oranı: %{success_result['success_rate']:.2f}")
-
-                except Exception as e:
-                    print(f"{tf} analiz hatası: {e}")
-
-    # Veritabanı bağlantısını kapat
     conn.close()
     print("\nTüm analizler tamamlandı!")
 
+# Analiz fonksiyonu ayrı fonksiyon haline getirildi
+async def analyze_symbol(symbol, dataframes):
+    for tf, df in dataframes.items():
+        if not df.empty and len(df) > 50:
+            try:
+                print(f"\n{symbol} - {tf} timeframe için analiz yapılıyor...")
+                results = deneme(tf, df, len(df))
+
+                for metric in ['balance', 'success_rate']:
+                    result = results[metric]
+                    save_results_to_db(
+                        symbol, tf,
+                        result['leverage'],
+                        result['stop_percentage'],
+                        result['kar_al_percentage'],
+                        result['atr_period'],
+                        result['atr_multiplier'],
+                        result['successful_trades'],
+                        result['unsuccessful_trades'],
+                        result['final_balance'],
+                        metric
+                    )
+
+                    print(f"{tf} - {metric.upper()} OPTİMİZASYONU:")
+                    print(f"  Kaldıraç: {result['leverage']}, Stop: {result['stop_percentage']}%, "
+                          f"Kar Al: {result['kar_al_percentage']}%")
+                    print(f"  ATR: {result['atr_period']}/{result['atr_multiplier']}")
+                    print(f"  Başarılı: {result['successful_trades']}, Başarısız: {result['unsuccessful_trades']}")
+                    print(f"  Son Bakiye: {result['final_balance']:.2f}, Başarı Oranı: %{result['success_rate']:.2f}")
+
+            except Exception as e:
+                print(f"{symbol} - {tf} analiz hatası: {e}")
 
 if __name__ == "__main__":
     import asyncio
-
     asyncio.run(main())
