@@ -11,14 +11,7 @@ def read():
 
     query = """
     SELECT *
-    FROM ohlcv_data
-    WHERE
-        high IS NULL OR high = 'NULL' OR high = '' OR
-        low IS NULL OR low = 'NULL' OR low = '' OR
-        open IS NULL OR open = 'NULL' OR open = '' OR
-        close IS NULL OR close = 'NULL' OR close = '' OR
-        timestamp IS NULL OR timestamp = 'NULL' OR timestamp = ''
-    LIMIT 100;
+    FROM analysis_results;
     """
 
     df = pd.read_sql_query(query, conn)
@@ -26,6 +19,19 @@ def read():
 
     print(df.head())
 
+def delete():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    query = """
+    DELETE FROM analysis_results;
+    """
+
+    cursor.execute(query)
+    conn.commit()
+    conn.close()
+
+    print("Tüm veriler silindi.")
 def find_duplicates():
     conn = get_db_connection()
 

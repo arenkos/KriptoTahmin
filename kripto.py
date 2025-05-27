@@ -219,14 +219,17 @@ def lim_olustur(zamanAraligi):
 def calculateATR(high_array, low_array, close_array, period):
     """
     Manuel ATR (Average True Range) hesaplama fonksiyonu
+    İlk period kadar değer için NaN döndürür, sonrasında gerçek ATR değerlerini hesaplar
     """
     atr = []
     tr_list = []
 
     for i in range(len(close_array)):
         if i == 0:
+            # İlk değer için sadece High-Low
             tr = high_array[i] - low_array[i]
         else:
+            # True Range hesaplama
             tr1 = high_array[i] - low_array[i]
             tr2 = abs(high_array[i] - close_array[i - 1])
             tr3 = abs(low_array[i] - close_array[i - 1])
@@ -234,37 +237,49 @@ def calculateATR(high_array, low_array, close_array, period):
 
         tr_list.append(tr)
 
+        # İlk period-1 değer için NaN döndür
         if i < period - 1:
             atr.append(float('nan'))
         elif i == period - 1:
+            # İlk ATR değeri: ilk period kadar TR'nin ortalaması
             atr.append(sum(tr_list[:period]) / period)
         else:
-            atr.append(((period - 1) * atr[-1] + tr) / period)
+            # Exponential Moving Average hesabı
+            previous_atr = atr[-1]
+            if not math.isnan(previous_atr):
+                atr.append(((period - 1) * previous_atr + tr) / period)
+            else:
+                atr.append(float('nan'))
 
     return atr
 
 
 def generateSupertrend(close_array, high_array, low_array, atr_period, atr_multiplier):
+    """
+    Düzeltilmiş Supertrend hesaplama fonksiyonu
+    ATR period'u dikkate alarak ilk geçerli değerden itibaren hesaplama yapar
+    """
     try:
         atr = calculateATR(high_array, low_array, close_array, atr_period)
     except Exception as Error:
-        print("[ERROR] ", Error)
-        return [0] * len(close_array)
+        print(f"[ERROR] ATR hesaplama hatası: {Error}")
+        return [float('nan')] * len(close_array)
 
-    previous_final_upperband = 0
-    previous_final_lowerband = 0
-    final_upperband = 0
-    final_lowerband = 0
-    previous_close = 0
-    previous_supertrend = 0
     supertrend = []
-    supertrendc = 0
 
-    for i in range(0, len(close_array)):
-        if np.isnan(close_array[i]) or np.isnan(atr[i]):
-            supertrend.append(float('nan'))
-            continue
+    # İlk atr_period kadar değer için NaN döndür
+    for i in range(atr_period):
+        supertrend.append(float('nan'))
 
+    if len(close_array) <= atr_period:
+        return supertrend
+
+    # İlk geçerli indeksten başla
+    start_index = atr_period
+
+    # İlk değerler için başlangıç hesaplaması
+    i = start_index
+    if i < len(close_array):
         highc = high_array[i]
         lowc = low_array[i]
         atrc = atr[i]
@@ -276,36 +291,89 @@ def generateSupertrend(close_array, high_array, low_array, atr_period, atr_multi
         basic_upperband = (highc + lowc) / 2 + atr_multiplier * atrc
         basic_lowerband = (highc + lowc) / 2 - atr_multiplier * atrc
 
-        if i == 0:
-            final_upperband = basic_upperband
-            final_lowerband = basic_lowerband
-            supertrendc = basic_upperband
+        # İlk supertrend değeri: fiyat hangi band'a yakınsa o band
+        if closec <= basic_upperband:
+            supertrend.append(basic_upperband)
         else:
-            if basic_upperband < previous_final_upperband or previous_close > previous_final_upperband:
+            supertrend.append(basic_lowerband)
+
+    # Geri kalan değerler için hesaplama
+    for i in range(start_index + 1, len(close_array)):
+        try:
+            highc = high_array[i]
+            lowc = low_array[i]
+            atrc = atr[i]
+            closec = close_array[i]
+            previous_close = close_array[i - 1]
+            previous_supertrend = supertrend[i - 1]
+
+            if math.isnan(atrc):
+                atrc = 0
+
+            # Basic bands hesaplama
+            basic_upperband = (highc + lowc) / 2 + atr_multiplier * atrc
+            basic_lowerband = (highc + lowc) / 2 - atr_multiplier * atrc
+
+            # Önceki değerlerden final bands hesaplama
+            if i >= 2:
+                prev_final_upperband = None
+                prev_final_lowerband = None
+
+                # Önceki final band'ları bul
+                prev_highc = high_array[i - 1]
+                prev_lowc = low_array[i - 1]
+                prev_atrc = atr[i - 1]
+                if math.isnan(prev_atrc):
+                    prev_atrc = 0
+
+                prev_basic_upperband = (prev_highc + prev_lowc) / 2 + atr_multiplier * prev_atrc
+                prev_basic_lowerband = (prev_highc + prev_lowc) / 2 - atr_multiplier * prev_atrc
+
+                # Final upperband hesaplama
+                if i >= 3:
+                    prev_prev_close = close_array[i - 2]
+                    if basic_upperband < prev_basic_upperband or prev_prev_close > prev_basic_upperband:
+                        final_upperband = basic_upperband
+                    else:
+                        final_upperband = prev_basic_upperband
+
+                    if basic_lowerband > prev_basic_lowerband or prev_prev_close < prev_basic_lowerband:
+                        final_lowerband = basic_lowerband
+                    else:
+                        final_lowerband = prev_basic_lowerband
+                else:
+                    final_upperband = basic_upperband
+                    final_lowerband = basic_lowerband
+            else:
                 final_upperband = basic_upperband
-            else:
-                final_upperband = previous_final_upperband
-
-            if basic_lowerband > previous_final_lowerband or previous_close < previous_final_lowerband:
                 final_lowerband = basic_lowerband
+
+            # Supertrend direction belirleme
+            if math.isnan(previous_supertrend):
+                if closec <= final_upperband:
+                    supertrendc = final_upperband
+                else:
+                    supertrendc = final_lowerband
             else:
-                final_lowerband = previous_final_lowerband
+                # Trend yönü belirleme
+                if (previous_supertrend == supertrend[i - 1] and
+                        previous_supertrend > final_lowerband and
+                        closec >= final_lowerband):
+                    supertrendc = final_lowerband
+                elif (previous_supertrend == supertrend[i - 1] and
+                      previous_supertrend < final_upperband and
+                      closec <= final_upperband):
+                    supertrendc = final_upperband
+                elif closec > final_upperband:
+                    supertrendc = final_lowerband
+                else:
+                    supertrendc = final_upperband
 
-            if previous_supertrend == previous_final_upperband and closec <= final_upperband:
-                supertrendc = final_upperband
-            elif previous_supertrend == previous_final_upperband and closec > final_upperband:
-                supertrendc = final_lowerband
-            elif previous_supertrend == previous_final_lowerband and closec >= final_lowerband:
-                supertrendc = final_lowerband
-            elif previous_supertrend == previous_final_lowerband and closec < final_lowerband:
-                supertrendc = final_upperband
+            supertrend.append(supertrendc)
 
-        supertrend.append(supertrendc)
-
-        previous_close = closec
-        previous_final_upperband = final_upperband
-        previous_final_lowerband = final_lowerband
-        previous_supertrend = supertrendc
+        except Exception as e:
+            print(f"Supertrend hesaplamasında hata (indeks {i}): {e}")
+            supertrend.append(float('nan'))
 
     return supertrend
 
@@ -375,22 +443,29 @@ def deneme(zamanAraligi, df, lim):
     optimization_count = 0
     total_optimizations = 10 * 20 * 20  # Yaklaşık hesaplama
 
-    for atr_period in [10]:  # ATR dönemleri
-        for atr_multiplier in [3]:  # ATR çarpanları
+    for atr_period in [10, 14, 20]:  # ATR dönemleri
+        for atr_multiplier in [2.0, 2.5, 3.0]:  # ATR çarpanları
             print(f"ATR parametreleri: period={atr_period}, multiplier={atr_multiplier}")
+
+            # Minimum veri kontrolü - ATR period'undan fazla veri olmalı
+            if len(df) < atr_period + 10:
+                print(f"ATR period ({atr_period}) için yetersiz veri. Atlanıyor...")
+                continue
 
             # Supertrend hesapla
             supertrend = generateSupertrend(close_array, high_array, low_array, atr_period, atr_multiplier)
 
-            # NaN kontrolü
-            supertrend_series = pd.Series(supertrend)
-            if supertrend_series.isnull().any():
-                print("Supertrend hesaplamasında NaN değerler var, atlanıyor...")
+            # NaN kontrolü - sadece geçerli değerler var mı?
+            valid_supertrend_count = sum(1 for x in supertrend if not math.isnan(x))
+            print(f"Geçerli Supertrend değer sayısı: {valid_supertrend_count}/{len(supertrend)}")
+
+            if valid_supertrend_count < 20:  # Minimum geçerli değer kontrolü
+                print("Çok az geçerli Supertrend değeri, atlanıyor...")
                 continue
 
-            for leverage in range(1, 11):  # 1-10 kaldıraç
-                for stop_pct in [i * 2.5 for i in range(1, 21)]:  # 2.5-50% stop (daha az iterasyon)
-                    for kar_al_pct in [i * 2.5 for i in range(1, 21)]:  # 2.5-50% kar al
+            for leverage in range(1, 51):  # 1-50 kaldıraç
+                for stop_pct in [i * 0.5 for i in range(1, 51)]:  # 0.5-25% stop (daha az iterasyon)
+                    for kar_al_pct in [i * 0.5 for i in range(1, 51)]:  # 0.5-25% kar al
 
                         optimization_count += 1
                         if optimization_count % 100 == 0:
@@ -403,11 +478,18 @@ def deneme(zamanAraligi, df, lim):
                         successful_trades = 0
                         unsuccessful_trades = 0
 
-                        i = atr_period + 3  # Başlangıç indeksi
+                        # ATR period'dan sonra başla
+                        i = atr_period + 1
 
                         while i < lim - 3:
                             if balance <= 0:
                                 break
+
+                            # NaN kontrolü
+                            if (math.isnan(supertrend[i]) or math.isnan(supertrend[i - 1]) or
+                                    i - 1 < 0 or i >= len(close_array)):
+                                i += 1
+                                continue
 
                             # Supertrend sinyali kontrolü
                             current_close = close_array[i]
@@ -434,6 +516,12 @@ def deneme(zamanAraligi, df, lim):
                                 trade_closed = False
 
                                 while j < lim and not trade_closed:
+                                    # NaN kontrolü
+                                    if (j >= len(supertrend) or math.isnan(supertrend[j]) or
+                                            j - 1 < 0 or math.isnan(supertrend[j - 1])):
+                                        j += 1
+                                        continue
+
                                     current_high = high_array[j]
                                     current_low = low_array[j]
                                     current_close_j = close_array[j]
@@ -570,7 +658,7 @@ def main():
 
             # Veritabanındaki veri sayısını kontrol et
             cursor.execute("SELECT COUNT(*) FROM ohlcv_data")
-            data_count = cursor.fetchone()[0]
+            data_count = cursor.fetchone
             print(f"Veritabanında {data_count} adet veri bulundu.")
 
             if data_count == 0:
