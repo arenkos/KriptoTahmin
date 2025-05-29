@@ -131,17 +131,30 @@ def save_results_to_db(symbol, timeframe, leverage, stop_percentage, kar_al_perc
                        atr_period, atr_multiplier, successful_trades, unsuccessful_trades,
                        final_balance, optimization_type='balance'):
     try:
+        print(f"DEBUG: Veritabanına kayıt yapılıyor - {symbol} {timeframe} {optimization_type}")
+
+        # Veritabanı dosyasının var olup olmadığını kontrol et
+        if not os.path.exists(LOCAL_DB_PATH):
+            print(f"ERROR: Veritabanı dosyası bulunamadı: {LOCAL_DB_PATH}")
+            return
+
         conn = sqlite3.connect(LOCAL_DB_PATH)
         cursor = conn.cursor()
 
         total_trades = successful_trades + unsuccessful_trades
         success_rate = (successful_trades / total_trades * 100) if total_trades > 0 else 0
 
+        print(
+            f"DEBUG: Kayıt değerleri - Başarılı: {successful_trades}, Başarısız: {unsuccessful_trades}, Bakiye: {final_balance}")
+
         # Önce eski sonucu sil
         cursor.execute('''
         DELETE FROM analysis_results 
         WHERE symbol = ? AND timeframe = ? AND optimization_type = ?
         ''', (symbol, timeframe, optimization_type))
+
+        deleted_rows = cursor.rowcount
+        print(f"DEBUG: {deleted_rows} eski kayıt silindi")
 
         # Yeni sonucu ekle
         cursor.execute('''
@@ -154,11 +167,22 @@ def save_results_to_db(symbol, timeframe, leverage, stop_percentage, kar_al_perc
               atr_period, atr_multiplier, successful_trades, unsuccessful_trades,
               final_balance, success_rate, optimization_type))
 
+        print(f"DEBUG: Yeni kayıt eklendi - ID: {cursor.lastrowid}")
+
         conn.commit()
+        print(f"DEBUG: Veritabanı commit edildi")
+
+        # Kayıt kontrol et
+        cursor.execute("SELECT COUNT(*) FROM analysis_results WHERE symbol = ? AND timeframe = ?",
+                       (symbol, timeframe))
+        count = cursor.fetchone()[0]
+        print(f"DEBUG: {symbol} {timeframe} için toplamda {count} kayıt var")
+
         conn.close()
 
     except Exception as e:
         print(f"Veritabanı hatası: {str(e)}")
+        traceback.print_exc()
 
 
 # API CONNECT - API bilgileri kaldırıldı (güvenlik için)
@@ -647,7 +671,6 @@ def deneme(zamanAraligi, df, lim):
 
 def main():
     print("Program başlıyor...")
-
     try:
         conn = create_db_connection()
         cursor = conn.cursor()
@@ -656,9 +679,9 @@ def main():
         if os.path.exists("crypto_data.db"):
             print("Veritabanı bulundu. Mevcut verilerle analiz yapılacak.")
 
-            # Veritabanındaki veri sayısını kontrol et
+            # HATA DÜZELTİLDİ: fetchone() parantez eklendi
             cursor.execute("SELECT COUNT(*) FROM ohlcv_data")
-            data_count = cursor.fetchone
+            data_count = cursor.fetchone()[0]  # [0] eklenmiş
             print(f"Veritabanında {data_count} adet veri bulundu.")
 
             if data_count == 0:
@@ -666,7 +689,6 @@ def main():
                 fetch_data_from_api(conn)
             else:
                 analyze_existing_data(conn)
-
         else:
             print("Veritabanı bulunamadı. API'den veri çekilecek.")
             fetch_data_from_api(conn)
@@ -692,7 +714,7 @@ def fetch_data_from_api(conn):
             start_date = end_date - (ANALYSIS_DAYS * 86400 * 1000)
 
             # Basit veri çekme - tüm günleri tek seferde çekmeye çalış
-            timeframes = ["1d", "4h", "1h"]  # Daha az timeframe ile test
+            timeframes = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w"]  # Daha az timeframe ile test
 
             for tf in timeframes:
                 try:
@@ -766,8 +788,19 @@ def analyze_symbol(symbol, dataframes):
 
                 results = deneme(tf, df, len(df))
 
+                print(f"DEBUG: Analiz sonuçları alındı:")
+                print(f"  Balance optimizasyonu: {results['balance']}")
+                print(f"  Success rate optimizasyonu: {results['success_rate']}")
+
                 for metric in ['balance', 'success_rate']:
                     result = results[metric]
+
+                    print(f"DEBUG: {metric} için kayıt yapılacak:")
+                    print(f"  Symbol: {symbol}, Timeframe: {tf}")
+                    print(f"  Başarılı işlem: {result['successful_trades']}")
+                    print(f"  Başarısız işlem: {result['unsuccessful_trades']}")
+                    print(f"  Final balance: {result['final_balance']}")
+
                     save_results_to_db(
                         symbol, tf,
                         result['leverage'],
@@ -793,5 +826,43 @@ def analyze_symbol(symbol, dataframes):
                 traceback.print_exc()
 
 
+def check_database_status():
+    """Veritabanı durumunu kontrol eden fonksiyon"""
+    try:
+        if not os.path.exists(LOCAL_DB_PATH):
+            print(f"ERROR: Veritabanı dosyası mevcut değil: {LOCAL_DB_PATH}")
+            return
+
+        conn = sqlite3.connect(LOCAL_DB_PATH)
+        cursor = conn.cursor()
+
+        # Tabloları listele
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = cursor.fetchall()
+        print(f"Mevcut tablolar: {[table[0] for table in tables]}")
+
+        # analysis_results tablosundaki kay sayısı
+        cursor.execute("SELECT COUNT(*) FROM analysis_results")
+        count = cursor.fetchone()[0]
+        print(f"analysis_results tablosunda {count} kayıt var")
+
+        if count > 0:
+            cursor.execute("SELECT symbol, timeframe, optimization_type FROM analysis_results LIMIT 5")
+            samples = cursor.fetchall()
+            print("Örnek kayıtlar:")
+            for sample in samples:
+                print(f"  {sample}")
+
+        conn.close()
+
+    except Exception as e:
+        print(f"Veritabanı kontrol hatası: {e}")
+        traceback.print_exc()
+
 if __name__ == "__main__":
+    print("=== VERİTABANI DURUM KONTROLÜ ===")
+    check_database_status()
+    print("=== ANA PROGRAM BAŞLIYOR ===")
     main()
+    print("=== VERİTABANI SON DURUM ===")
+    check_database_status()
