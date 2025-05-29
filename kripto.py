@@ -463,9 +463,9 @@ def deneme(zamanAraligi, df, lim):
                 print("Çok az geçerli Supertrend değeri, atlanıyor...")
                 continue
 
-            for leverage in range(1, 51):  # 1-50 kaldıraç
-                for stop_pct in [i * 0.5 for i in range(1, 51)]:  # 0.5-25% stop (daha az iterasyon)
-                    for kar_al_pct in [i * 0.5 for i in range(1, 51)]:  # 0.5-25% kar al
+            for leverage in range(1, 21):  # 1-20 kaldıraç
+                for stop_pct in [i * 0.5 for i in range(1, 11)]:  # 0.5-5% stop (daha az iterasyon)
+                    for kar_al_pct in [i * 0.5 for i in range(1, 11)]:  # 0.5-55% kar al
 
                         optimization_count += 1
                         if optimization_count % 100 == 0:
