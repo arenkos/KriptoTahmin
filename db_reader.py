@@ -90,7 +90,8 @@ def clean_duplicates():
 if __name__ == "__main__":
     print("Veritabanındaki tekrarlanan kayıtları kontrol ediyorum...")
     #find_duplicates()
-    read()
+    #read()
+    delete()
     response = input("\nTekrarlanan kayıtları temizlemek istiyor musunuz? (e/h): ")
     if response.lower() == 'e':
         clean_duplicates()
