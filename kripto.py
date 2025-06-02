@@ -554,19 +554,20 @@ def deneme(zamanAraligi, df, lim):
                                     prev_st_j = supertrend[j - 1] if j > 0 else current_st_j
 
                                     if trade_direction == "LONG":
-                                        # Likit kontrolü
                                         loss_pct = (current_low - entry_price) / entry_price * 100
-                                        if loss_pct <= -90 / leverage:
+
+                                        # Stop loss kontrolü
+                                        if loss_pct <= -stop_pct and not stop_pct <= -90 / leverage:
+                                            balance += balance * (-stop_pct / 100) * leverage
+                                            unsuccessful_trades += 1
+                                            trade_closed = True
+
+                                        # Likit kontrolü
+                                        elif loss_pct <= -90 / leverage:
                                             balance = 0
                                             unsuccessful_trades += 1
                                             trade_closed = True
                                             break
-
-                                        # Stop loss kontrolü
-                                        elif loss_pct <= -stop_pct:
-                                            balance += balance * (-stop_pct / 100) * leverage
-                                            unsuccessful_trades += 1
-                                            trade_closed = True
 
                                         # Kar al kontrolü
                                         profit_pct = (current_high - entry_price) / entry_price * 100
@@ -588,19 +589,19 @@ def deneme(zamanAraligi, df, lim):
                                             trade_closed = True
 
                                     elif trade_direction == "SHORT":
-                                        # Likit kontrolü
                                         loss_pct = (current_high - entry_price) / entry_price * 100
-                                        if loss_pct >= 90 / leverage:
+                                        # Stop loss kontrolü
+                                        if loss_pct >= stop_pct and not stop_pct >= 90 / leverage:
+                                            balance += balance * (-stop_pct / 100) * leverage
+                                            unsuccessful_trades += 1
+                                            trade_closed = True
+
+                                        # Likit kontrolü
+                                        elif loss_pct >= 90 / leverage:
                                             balance = 0
                                             unsuccessful_trades += 1
                                             trade_closed = True
                                             break
-
-                                        # Stop loss kontrolü
-                                        elif loss_pct >= stop_pct:
-                                            balance += balance * (-stop_pct / 100) * leverage
-                                            unsuccessful_trades += 1
-                                            trade_closed = True
 
                                         # Kar al kontrolü
                                         profit_pct = (entry_price - current_low) / entry_price * 100
