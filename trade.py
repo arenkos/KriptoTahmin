@@ -480,7 +480,7 @@ def send_trade_signal(user_settings, signal_type, price, timestamp):
 def execute_trade(user_settings, signal_type, price):
     """Binance API ile işlem yap"""
     if not user_settings.get('api_key') or not user_settings.get('api_secret'):
-        logger.warning(f"API credentials missing for user {user_settings.get('username')}. Trade not executed.")
+        logger.warning(f"API credentials missing for settings {user_settings.get('symbol')} {user_settings.get('timeframe')}. Trade not executed.")
         return False
     
     try:
@@ -503,14 +503,8 @@ def execute_trade(user_settings, signal_type, price):
             'leverage': leverage
         })
         
-        # Hesap bakiyesini kontrol et
-        balance = exchange.fetch_balance()
-        usdt_balance = balance['USDT']['free']
-        
-        # Pozisyon büyüklüğünü hesapla - bakiyenin %95'ini kullan
-        amount_usdt = usdt_balance * 0.95
-        current_price = exchange.fetch_ticker(symbol)['last']
-        amount = amount_usdt / current_price
+        # İşlem miktarını hesapla (bakiye * kaldıraç)
+        amount = user_settings['balance'] * leverage
         
         # İşlem yap
         if signal_type == 'BUY':
@@ -518,7 +512,7 @@ def execute_trade(user_settings, signal_type, price):
         else:  # SELL
             order = exchange.create_market_sell_order(symbol, amount)
         
-        logger.info(f"Trade executed for {user_settings['username']}: {signal_type} {symbol} at {price}")
+        logger.info(f"Trade executed for {user_settings['symbol']} {user_settings['timeframe']}: {signal_type} {symbol} at {price}")
         return order
         
     except Exception as e:
@@ -529,12 +523,10 @@ def execute_trade(user_settings, signal_type, price):
 # --- TRADING LOGIC ---
 def process_user_data(user_settings):
     """Her kullanıcı için trading işlemlerini yürüt"""
-    user_id = user_settings['user_id']
-    username = user_settings['username']
     symbol = user_settings['symbol']
     timeframe = user_settings['timeframe']
     
-    logger.info(f"Processing data for user {username}, symbol: {symbol}, timeframe: {timeframe}")
+    logger.info(f"Processing data for symbol: {symbol}, timeframe: {timeframe}")
     
     # Veri çek
     df = fetch_data_from_db(symbol, timeframe)
@@ -571,14 +563,14 @@ def process_user_data(user_settings):
         
         # Telegram bildirimi gönder
         if send_trade_signal(user_settings, signal, current_price, timestamp):
-            logger.info(f"Telegram notification sent for BUY signal to user {username}")
+            logger.info(f"Telegram notification sent for BUY signal")
         
         # API key ve secret varsa işlem yap
         if user_settings.get('api_key') and user_settings.get('api_secret'):
             if execute_trade(user_settings, signal, current_price):
-                logger.info(f"Trade executed for {username}: BUY {symbol} at {current_price}")
+                logger.info(f"Trade executed: BUY {symbol} at {current_price}")
             else:
-                logger.error(f"Failed to execute trade for {username}")
+                logger.error(f"Failed to execute trade")
     
     # SHORT sinyali: Fiyat supertrend'in altına düştü
     elif prev_close >= prev_supertrend and curr_close < curr_supertrend:
@@ -587,14 +579,14 @@ def process_user_data(user_settings):
         
         # Telegram bildirimi gönder
         if send_trade_signal(user_settings, signal, current_price, timestamp):
-            logger.info(f"Telegram notification sent for SELL signal to user {username}")
+            logger.info(f"Telegram notification sent for SELL signal")
         
         # API key ve secret varsa işlem yap
         if user_settings.get('api_key') and user_settings.get('api_secret'):
             if execute_trade(user_settings, signal, current_price):
-                logger.info(f"Trade executed for {username}: SELL {symbol} at {current_price}")
+                logger.info(f"Trade executed: SELL {symbol} at {current_price}")
             else:
-                logger.error(f"Failed to execute trade for {username}")
+                logger.error(f"Failed to execute trade")
     
     else:
         logger.info(f"No trading signal for {symbol} {timeframe} at this time")
@@ -657,7 +649,7 @@ def notify_users(signal):
         matching_settings = TradingSettings.query.filter_by(
             symbol=signal['symbol'],
             timeframe=signal['timeframe'],
-            is_active=True
+            binance_active=True
         ).all()
         
         bot = Bot(token=TELEGRAM_BOT_TOKEN)

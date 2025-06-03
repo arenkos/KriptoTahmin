@@ -34,6 +34,9 @@ class TradingSettings(db.Model):
     take_profit = db.Column(db.Float, nullable=False)
     binance_active = db.Column(db.Boolean, default=False)
     telegram_active = db.Column(db.Boolean, default=False)
+    api_key = db.Column(db.String(128))  # Her ayar için ayrı API key
+    api_secret = db.Column(db.String(128))  # Her ayar için ayrı API secret
+    balance = db.Column(db.Float, default=0.0)  # Her ayar için ayrı bakiye
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

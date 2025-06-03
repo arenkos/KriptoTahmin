@@ -72,52 +72,75 @@ def settings():
     form.symbol.choices = [(s, s) for s in SUPPORTED_SYMBOLS]
     form.timeframe.choices = [(t, t) for t in TIMEFRAMES]
 
+    # Düzenlenecek ayarın ID'sini al
+    settings_id = request.args.get('settings_id', type=int)
+    editing_settings = None
+    if settings_id:
+        editing_settings = TradingSettings.query.get_or_404(settings_id)
+        if editing_settings.user_id != current_user.id:
+            flash('Bu ayarlara erişim izniniz yok', 'danger')
+            return redirect(url_for('main.dashboard'))
+
     if request.method == 'POST' and form.validate_on_submit():
-        # API bilgilerini kaydet
-        current_user.api_key = form.api_key.data
-        current_user.api_secret = form.api_secret.data
-        current_user.balance = form.balance.data
-        db.session.commit()
-        # Trading ayarlarını kaydet
-        existing_settings = TradingSettings.query.filter_by(
-            user_id=current_user.id,
-            symbol=form.symbol.data,
-            timeframe=form.timeframe.data
-        ).first()
-        if existing_settings:
-            existing_settings.leverage = form.leverage.data
-            existing_settings.stop_loss = form.stop_loss.data
-            existing_settings.take_profit = form.take_profit.data
-            existing_settings.updated_at = datetime.utcnow()
+        if editing_settings:
+            # Mevcut ayarı güncelle
+            editing_settings.symbol = form.symbol.data
+            editing_settings.timeframe = form.timeframe.data
+            editing_settings.leverage = form.leverage.data
+            editing_settings.stop_loss = form.stop_loss.data
+            editing_settings.take_profit = form.take_profit.data
+            editing_settings.api_key = form.api_key.data
+            editing_settings.api_secret = form.api_secret.data
+            editing_settings.balance = form.balance.data
+            editing_settings.updated_at = datetime.utcnow()
+            flash('Ayar başarıyla güncellendi', 'success')
         else:
+            # Yeni ayar oluştur
             new_settings = TradingSettings(
                 user_id=current_user.id,
                 symbol=form.symbol.data,
                 timeframe=form.timeframe.data,
                 leverage=form.leverage.data,
                 stop_loss=form.stop_loss.data,
-                take_profit=form.take_profit.data
+                take_profit=form.take_profit.data,
+                api_key=form.api_key.data,
+                api_secret=form.api_secret.data,
+                balance=form.balance.data
             )
             db.session.add(new_settings)
+            flash('Yeni ayar başarıyla oluşturuldu', 'success')
+        
         db.session.commit()
-        flash('Ayarlar başarıyla kaydedildi', 'success')
-        return redirect(url_for('main.settings'))
+        return redirect(url_for('main.dashboard'))
 
     # GET ise mevcut ayarları forma doldur
     if request.method == 'GET':
-        form.api_key.data = current_user.api_key
-        form.api_secret.data = current_user.api_secret
-        form.balance.data = current_user.balance
-        last_settings = TradingSettings.query.filter_by(
-            user_id=current_user.id
-        ).order_by(TradingSettings.updated_at.desc()).first()
-        if last_settings:
-            form.symbol.data = last_settings.symbol
-            form.timeframe.data = last_settings.timeframe
-            form.leverage.data = last_settings.leverage
-            form.stop_loss.data = last_settings.stop_loss
-            form.take_profit.data = last_settings.take_profit
-    return render_template('main/settings.html', form=form)
+        if editing_settings:
+            # Düzenlenen ayarın bilgilerini forma doldur
+            form.symbol.data = editing_settings.symbol
+            form.timeframe.data = editing_settings.timeframe
+            form.leverage.data = editing_settings.leverage
+            form.stop_loss.data = editing_settings.stop_loss
+            form.take_profit.data = editing_settings.take_profit
+            form.api_key.data = editing_settings.api_key
+            form.api_secret.data = editing_settings.api_secret
+            form.balance.data = editing_settings.balance
+        else:
+            # Yeni ayar için son kullanılan ayarları doldur
+            last_settings = TradingSettings.query.filter_by(
+                user_id=current_user.id
+            ).order_by(TradingSettings.updated_at.desc()).first()
+            if last_settings:
+                form.symbol.data = last_settings.symbol
+                form.timeframe.data = last_settings.timeframe
+                form.leverage.data = last_settings.leverage
+                form.stop_loss.data = last_settings.stop_loss
+                form.take_profit.data = last_settings.take_profit
+                form.api_key.data = last_settings.api_key
+                form.api_secret.data = last_settings.api_secret
+                form.balance.data = last_settings.balance
+
+    return render_template('main/settings.html', form=form, editing_settings=editing_settings)
 
 @bp.route('/analyze/<symbol>/<timeframe>')
 @login_required
@@ -162,7 +185,8 @@ def start_trading(settings_id):
     # Start trading
     # This would be handled by a background task in production
     # For now, we'll just update the settings
-    settings.is_active = True
+    settings.binance_active = True
+    settings.telegram_active = True
     db.session.commit()
     
     flash('Trading başlatıldı', 'success')
@@ -178,7 +202,8 @@ def stop_trading(settings_id):
         return redirect(url_for('main.dashboard'))
         
     # Stop trading
-    settings.is_active = False
+    settings.binance_active = False
+    settings.telegram_active = False
     db.session.commit()
     
     flash('Trading durduruldu', 'success')
@@ -503,7 +528,8 @@ def apply_settings():
     # Önce tüm ayarları pasif yap
     user_settings = TradingSettings.query.filter_by(user_id=current_user.id).all()
     for setting in user_settings:
-        setting.is_active = False
+        setting.binance_active = False
+        setting.telegram_active = False
     
     # Mevcut ayarları kontrol et
     settings = TradingSettings.query.filter_by(
@@ -517,7 +543,8 @@ def apply_settings():
         settings.leverage = leverage
         settings.stop_loss = stop_percentage
         settings.take_profit = kar_al_percentage
-        settings.is_active = True  # Bu ayarı aktif olarak işaretle
+        settings.binance_active = True  # Bu ayarı aktif olarak işaretle
+        settings.telegram_active = True
     else:
         settings = TradingSettings(
             user_id=current_user.id,
@@ -526,7 +553,8 @@ def apply_settings():
             leverage=leverage,
             stop_loss=stop_percentage,
             take_profit=kar_al_percentage,
-            is_active=True  # Bu ayarı aktif olarak işaretle
+            binance_active=True,  # Bu ayarı aktif olarak işaretle
+            telegram_active = True  # Bu ayarı aktif olarak işaretle
         )
         db.session.add(settings)
     

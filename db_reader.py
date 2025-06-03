@@ -17,7 +17,7 @@ def read():
     df = pd.read_sql_query(query, conn)
     conn.close()
 
-    print(df.head())
+    print(df)
 
 def delete():
     conn = get_db_connection()
@@ -90,9 +90,13 @@ def clean_duplicates():
 if __name__ == "__main__":
     print("Veritabanındaki tekrarlanan kayıtları kontrol ediyorum...")
     #find_duplicates()
-    #read()
-    delete()
-    response = input("\nTekrarlanan kayıtları temizlemek istiyor musunuz? (e/h): ")
+    read()
+    #delete()
+    response = input("\nAnaliz tablosunu temizlemek istiyor musunuz? (e/h): ")
+    if response.lower() == 'e':
+        delete()
+    #response = input("\nTekrarlanan kayıtları temizlemek istiyor musunuz? (e/h): ")
+    response = "a"
     if response.lower() == 'e':
         clean_duplicates()
         print("\nTemizlik sonrası kontrol:")
