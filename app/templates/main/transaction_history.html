@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>İşlem Geçmişi</h2>
+    <div class="card">
+        <div class="card-body">
+            <div class="row mb-3">
+                <div class="col">
+                    <h5>İşlem Detayları</h5>
+                    <p><strong>Sembol:</strong> {{ symbol }}</p>
+                    <p><strong>Zaman Dilimi:</strong> {{ timeframe }}</p>
+                </div>
+            </div>
+            
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>İşlem Türü</th>
+                            <th>Giriş Tarihi</th>
+                            <th>Giriş Fiyatı</th>
+                            <th>Giriş Bakiyesi</th>
+                            <th>Çıkış Tarihi</th>
+                            <th>Çıkış Fiyatı</th>
+                            <th>Çıkış Bakiyesi</th>
+                            <th>Kar/Zarar</th>
+                            <th>Durum</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for transaction in transactions.items %}
+                        <tr>
+                            <td>
+                                {% if transaction.trade_type == 'LONG' %}
+                                <span class="badge bg-success">LONG</span>
+                                {% else %}
+                                <span class="badge bg-danger">SHORT</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ transaction.entry_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                            <td>{{ "%.4f"|format(transaction.entry_price) }}</td>
+                            <td>{{ "%.2f"|format(transaction.entry_balance) }} USDT</td>
+                            <td>
+                                {% if transaction.exit_time %}
+                                {{ transaction.exit_time.strftime('%Y-%m-%d %H:%M:%S') }}
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if transaction.exit_price %}
+                                {{ "%.4f"|format(transaction.exit_price) }}
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if transaction.exit_balance %}
+                                {{ "%.2f"|format(transaction.exit_balance) }} USDT
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if transaction.profit_loss %}
+                                <span class="{% if transaction.profit_loss > 0 %}text-success{% else %}text-danger{% endif %}">
+                                    {{ "%.2f"|format(transaction.profit_loss) }} USDT
+                                </span>
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if transaction.trade_closed %}
+                                <span class="badge bg-secondary">Kapalı</span>
+                                {% else %}
+                                <span class="badge bg-primary">Açık</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Sayfalandırma -->
+            {% if transactions.pages > 1 %}
+            <nav aria-label="Sayfa navigasyonu" class="mt-4">
+                <ul class="pagination justify-content-center">
+                    <!-- Önceki sayfa -->
+                    <li class="page-item {% if not transactions.has_prev %}disabled{% endif %}">
+                        <a class="page-link" href="{{ url_for('main.transaction_history', symbol=symbol, timeframe=timeframe, page=transactions.prev_num) if transactions.has_prev else '#' }}">
+                            &laquo;
+                        </a>
+                    </li>
+
+                    <!-- Sayfa numaraları -->
+                    {% for page_num in transactions.iter_pages(left_edge=2, left_current=2, right_current=3, right_edge=2) %}
+                        {% if page_num %}
+                            <li class="page-item {% if page_num == transactions.page %}active{% endif %}">
+                                <a class="page-link" href="{{ url_for('main.transaction_history', symbol=symbol, timeframe=timeframe, page=page_num) }}">
+                                    {{ page_num }}
+                                </a>
+                            </li>
+                        {% else %}
+                            <li class="page-item disabled">
+                                <span class="page-link">...</span>
+                            </li>
+                        {% endif %}
+                    {% endfor %}
+
+                    <!-- Sonraki sayfa -->
+                    <li class="page-item {% if not transactions.has_next %}disabled{% endif %}">
+                        <a class="page-link" href="{{ url_for('main.transaction_history', symbol=symbol, timeframe=timeframe, page=transactions.next_num) if transactions.has_next else '#' }}">
+                            &raquo;
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+            {% endif %}
+
+            <!-- Toplam sonuç sayısı -->
+            <div class="text-center text-muted mt-3">
+                Toplam {{ transactions.total }} işlem bulundu, sayfa başına 10 işlem gösteriliyor.
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 
