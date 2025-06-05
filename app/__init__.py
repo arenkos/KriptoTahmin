@@ -15,7 +15,7 @@ def create_app(config_class=Config):
 
     migrate = Migrate(app, db)
 
-    from app.models.database import User
+    from app.models.database import User, TradingSettings, Transaction, AnalysisResult
     
     @login_manager.user_loader
     def load_user(user_id):

@@ -89,6 +89,8 @@ def settings():
             editing_settings.leverage = form.leverage.data
             editing_settings.stop_loss = form.stop_loss.data
             editing_settings.take_profit = form.take_profit.data
+            editing_settings.atr_period = form.atr_period.data
+            editing_settings.atr_multiplier = form.atr_multiplier.data
             editing_settings.api_key = form.api_key.data
             editing_settings.api_secret = form.api_secret.data
             editing_settings.balance = form.balance.data
@@ -103,6 +105,8 @@ def settings():
                 leverage=form.leverage.data,
                 stop_loss=form.stop_loss.data,
                 take_profit=form.take_profit.data,
+                atr_period=form.atr_period.data,
+                atr_multiplier=form.atr_multiplier.data,
                 api_key=form.api_key.data,
                 api_secret=form.api_secret.data,
                 balance=form.balance.data
@@ -122,6 +126,8 @@ def settings():
             form.leverage.data = editing_settings.leverage
             form.stop_loss.data = editing_settings.stop_loss
             form.take_profit.data = editing_settings.take_profit
+            form.atr_period.data = editing_settings.atr_period
+            form.atr_multiplier.data = editing_settings.atr_multiplier
             form.api_key.data = editing_settings.api_key
             form.api_secret.data = editing_settings.api_secret
             form.balance.data = editing_settings.balance
@@ -136,6 +142,8 @@ def settings():
                 form.leverage.data = last_settings.leverage
                 form.stop_loss.data = last_settings.stop_loss
                 form.take_profit.data = last_settings.take_profit
+                form.atr_period.data = last_settings.atr_period
+                form.atr_multiplier.data = last_settings.atr_multiplier
                 form.api_key.data = last_settings.api_key
                 form.api_secret.data = last_settings.api_secret
                 form.balance.data = last_settings.balance
@@ -514,67 +522,29 @@ def param_analysis():
 @bp.route('/apply_settings')
 @login_required
 def apply_settings():
-    """Trading ayarlarını seçilen parametre sonuçlarına göre günceller"""
+    # URL parametrelerinden ayarları al
     symbol = request.args.get('symbol')
     timeframe = request.args.get('timeframe')
     leverage = float(request.args.get('leverage', 1))
     stop_percentage = float(request.args.get('stop_percentage', 1))
     kar_al_percentage = float(request.args.get('kar_al_percentage', 2))
-    
-    if not all([symbol, timeframe, leverage, stop_percentage, kar_al_percentage]):
-        flash('Gerekli parametreler eksik', 'error')
-        return redirect(url_for('main.param_analysis'))
-    
-    # Önce tüm ayarları pasif yap
-    user_settings = TradingSettings.query.filter_by(user_id=current_user.id).all()
-    for setting in user_settings:
-        setting.binance_active = False
-        setting.telegram_active = False
-    
-    # Mevcut ayarları kontrol et
-    settings = TradingSettings.query.filter_by(
+    atr_period = int(request.args.get('atr_period', 10))
+    atr_multiplier = float(request.args.get('atr_multiplier', 3.0))
+
+    # Yeni trading ayarı oluştur
+    new_settings = TradingSettings(
         user_id=current_user.id,
         symbol=symbol,
-        timeframe=timeframe
-    ).first()
+        timeframe=timeframe,
+        leverage=leverage,
+        stop_loss=stop_percentage,
+        take_profit=kar_al_percentage,
+        atr_period=atr_period,
+        atr_multiplier=atr_multiplier
+    )
     
-    # Eğer ayar varsa güncelle, yoksa yeni oluştur
-    if settings:
-        settings.leverage = leverage
-        settings.stop_loss = stop_percentage
-        settings.take_profit = kar_al_percentage
-        settings.binance_active = True  # Bu ayarı aktif olarak işaretle
-        settings.telegram_active = True
-    else:
-        settings = TradingSettings(
-            user_id=current_user.id,
-            symbol=symbol,
-            timeframe=timeframe,
-            leverage=leverage,
-            stop_loss=stop_percentage,
-            take_profit=kar_al_percentage,
-            binance_active=True,  # Bu ayarı aktif olarak işaretle
-            telegram_active = True  # Bu ayarı aktif olarak işaretle
-        )
-        db.session.add(settings)
-    
+    db.session.add(new_settings)
     db.session.commit()
     
-    # Trade bot'u hemen çalıştır
-    try:
-        import subprocess
-        import sys
-        subprocess.Popen([sys.executable, "trade.py"])
-        flash(f'{symbol} {timeframe} için trading ayarları uygulandı ve trade bot yeniden başlatıldı', 'success')
-    except Exception as e:
-        current_app.logger.error(f"Trade bot başlatılırken hata: {e}")
-        flash(f'{symbol} {timeframe} için trading ayarları uygulandı fakat trade bot başlatılamadı', 'warning')
-    
-    # Ayarlar sayfasında ilgili form alanlarını doldurmak için session değişkenlerini ayarla
-    session['selected_symbol'] = symbol
-    session['selected_timeframe'] = timeframe
-    session['selected_leverage'] = leverage
-    session['selected_stop_loss'] = stop_percentage
-    session['selected_take_profit'] = kar_al_percentage
-    
-    return redirect(url_for('main.settings')) 
+    flash('Ayarlar başarıyla uygulandı', 'success')
+    return redirect(url_for('main.settings', settings_id=new_settings.id)) 

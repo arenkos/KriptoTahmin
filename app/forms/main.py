@@ -23,6 +23,14 @@ class SettingsForm(FlaskForm):
         NumberRange(min=Config.MIN_TAKE_PROFIT, max=Config.MAX_TAKE_PROFIT, 
                    message='Kâr al {} ile {} arasında olmalıdır.'.format(Config.MIN_TAKE_PROFIT, Config.MAX_TAKE_PROFIT))
     ], default=Config.DEFAULT_TAKE_PROFIT)
+    atr_period = FloatField('ATR Periyodu', validators=[
+        DataRequired(),
+        NumberRange(min=1, max=100, message='ATR periyodu 1 ile 100 arasında olmalıdır.')
+    ], default=14)
+    atr_multiplier = FloatField('ATR Çarpanı', validators=[
+        DataRequired(),
+        NumberRange(min=0.1, max=10, message='ATR çarpanı 0.1 ile 10 arasında olmalıdır.')
+    ], default=2.0)
     # API ayarları
     api_key = StringField('Binance API Key', validators=[Optional()])
     api_secret = StringField('Binance API Secret', validators=[Optional()])

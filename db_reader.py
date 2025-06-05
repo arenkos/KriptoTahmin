@@ -19,6 +19,23 @@ def read():
 
     print(df)
 
+def tablo_liste():
+    # Veritabanına bağlan
+    conn = sqlite3.connect('instance/app.db')
+    cursor = conn.cursor()
+
+    # Tabloları sorgula
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    tables = cursor.fetchall()
+
+    # Tabloları yazdır
+    print("Veritabanındaki tablolar:")
+    for table in tables:
+        print(table[0])
+
+    # Bağlantıyı kapat
+    conn.close()
+
 def delete():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -90,6 +107,7 @@ def clean_duplicates():
 if __name__ == "__main__":
     print("Veritabanındaki tekrarlanan kayıtları kontrol ediyorum...")
     #find_duplicates()
+    #tablo_liste()
     read()
     #delete()
     response = input("\nAnaliz tablosunu temizlemek istiyor musunuz? (e/h): ")
