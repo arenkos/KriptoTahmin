@@ -670,6 +670,222 @@ def deneme(zamanAraligi, df, lim):
     }
 
 
+def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_profit_percentage, atr_period, atr_multiplier):
+    """
+    Stratejiyi backtest eder ve sonuçları döndürür.
+    İşleme girişleri bir sonraki mumun açılışında yapılır.
+    """
+    # Supertrend hesapla
+    df = generateSupertrend(df['close'].values, df['high'].values, df['low'].values, atr_period, atr_multiplier)
+    
+    balance = initial_balance
+    position = None
+    entry_price = 0
+    entry_balance = 0
+    successful_trades = 0
+    unsuccessful_trades = 0
+    transactions = []
+    
+    # İlk mumu atla çünkü bir önceki mumun verilerine ihtiyacımız var
+    for i in range(1, len(df)):
+        current_row = df.iloc[i]
+        previous_row = df.iloc[i-1]
+        
+        # Eğer pozisyon yoksa ve sinyal varsa
+        if position is None:
+            # LONG sinyali (önceki mumda LONG sinyali varsa ve şu anki mumun açılışında işleme gir)
+            if previous_row['supertrend'] == 1 and previous_row['supertrend_prev'] == -1:
+                position = 'LONG'
+                entry_price = current_row['open']  # Bir sonraki mumun açılışında işleme gir
+                entry_balance = balance
+                transactions.append({
+                    'trade_type': 'LONG',
+                    'entry_price': entry_price,
+                    'entry_time': current_row.name,
+                    'entry_balance': entry_balance,
+                    'trade_closed': False
+                })
+            
+            # SHORT sinyali (önceki mumda SHORT sinyali varsa ve şu anki mumun açılışında işleme gir)
+            elif previous_row['supertrend'] == -1 and previous_row['supertrend_prev'] == 1:
+                position = 'SHORT'
+                entry_price = current_row['open']  # Bir sonraki mumun açılışında işleme gir
+                entry_balance = balance
+                transactions.append({
+                    'trade_type': 'SHORT',
+                    'entry_price': entry_price,
+                    'entry_time': current_row.name,
+                    'entry_balance': entry_balance,
+                    'trade_closed': False
+                })
+        
+        # Eğer pozisyon varsa
+        elif position is not None:
+            # LONG pozisyonu için
+            if position == 'LONG':
+                # Stop loss kontrolü
+                if current_row['low'] <= entry_price * (1 - stop_loss_percentage/100):
+                    exit_price = entry_price * (1 - stop_loss_percentage/100)
+                    profit_loss = (exit_price - entry_price) * leverage
+                    balance += profit_loss
+                    unsuccessful_trades += 1
+                    position = None
+                    
+                    # İşlemi güncelle
+                    transactions[-1].update({
+                        'exit_price': exit_price,
+                        'exit_time': current_row.name,
+                        'exit_balance': balance,
+                        'profit_loss': profit_loss,
+                        'trade_closed': True
+                    })
+                
+                # Take profit kontrolü
+                elif current_row['high'] >= entry_price * (1 + take_profit_percentage/100):
+                    exit_price = entry_price * (1 + take_profit_percentage/100)
+                    profit_loss = (exit_price - entry_price) * leverage
+                    balance += profit_loss
+                    successful_trades += 1
+                    position = None
+                    
+                    # İşlemi güncelle
+                    transactions[-1].update({
+                        'exit_price': exit_price,
+                        'exit_time': current_row.name,
+                        'exit_balance': balance,
+                        'profit_loss': profit_loss,
+                        'trade_closed': True
+                    })
+                
+                # Trend değişimi kontrolü
+                elif current_row['supertrend'] == -1:
+                    exit_price = current_row['close']
+                    profit_loss = (exit_price - entry_price) * leverage
+                    balance += profit_loss
+                    if profit_loss > 0:
+                        successful_trades += 1
+                    else:
+                        unsuccessful_trades += 1
+                    position = None
+                    
+                    # İşlemi güncelle
+                    transactions[-1].update({
+                        'exit_price': exit_price,
+                        'exit_time': current_row.name,
+                        'exit_balance': balance,
+                        'profit_loss': profit_loss,
+                        'trade_closed': True
+                    })
+            
+            # SHORT pozisyonu için
+            elif position == 'SHORT':
+                # Stop loss kontrolü
+                if current_row['high'] >= entry_price * (1 + stop_loss_percentage/100):
+                    exit_price = entry_price * (1 + stop_loss_percentage/100)
+                    profit_loss = (entry_price - exit_price) * leverage
+                    balance += profit_loss
+                    unsuccessful_trades += 1
+                    position = None
+                    
+                    # İşlemi güncelle
+                    transactions[-1].update({
+                        'exit_price': exit_price,
+                        'exit_time': current_row.name,
+                        'exit_balance': balance,
+                        'profit_loss': profit_loss,
+                        'trade_closed': True
+                    })
+                
+                # Take profit kontrolü
+                elif current_row['low'] <= entry_price * (1 - take_profit_percentage/100):
+                    exit_price = entry_price * (1 - take_profit_percentage/100)
+                    profit_loss = (entry_price - exit_price) * leverage
+                    balance += profit_loss
+                    successful_trades += 1
+                    position = None
+                    
+                    # İşlemi güncelle
+                    transactions[-1].update({
+                        'exit_price': exit_price,
+                        'exit_time': current_row.name,
+                        'exit_balance': balance,
+                        'profit_loss': profit_loss,
+                        'trade_closed': True
+                    })
+                
+                # Trend değişimi kontrolü
+                elif current_row['supertrend'] == 1:
+                    exit_price = current_row['close']
+                    profit_loss = (entry_price - exit_price) * leverage
+                    balance += profit_loss
+                    if profit_loss > 0:
+                        successful_trades += 1
+                    else:
+                        unsuccessful_trades += 1
+                    position = None
+                    
+                    # İşlemi güncelle
+                    transactions[-1].update({
+                        'exit_price': exit_price,
+                        'exit_time': current_row.name,
+                        'exit_balance': balance,
+                        'profit_loss': profit_loss,
+                        'trade_closed': True
+                    })
+        
+        # Bakiye kontrolü
+        if balance <= 0:
+            # Açık işlemleri kapat
+            if position is not None:
+                exit_price = current_row['close']
+                if position == 'LONG':
+                    profit_loss = (exit_price - entry_price) * leverage
+                else:
+                    profit_loss = (entry_price - exit_price) * leverage
+                
+                transactions[-1].update({
+                    'exit_price': exit_price,
+                    'exit_time': current_row.name,
+                    'exit_balance': 0,
+                    'profit_loss': profit_loss,
+                    'trade_closed': True
+                })
+            
+            balance = 0
+            break
+    
+    # Son işlem hala açıksa kapat
+    if position is not None:
+        last_row = df.iloc[-1]
+        exit_price = last_row['close']
+        if position == 'LONG':
+            profit_loss = (exit_price - entry_price) * leverage
+        else:
+            profit_loss = (entry_price - exit_price) * leverage
+        
+        transactions[-1].update({
+            'exit_price': exit_price,
+            'exit_time': last_row.name,
+            'exit_balance': balance,
+            'profit_loss': profit_loss,
+            'trade_closed': True
+        })
+    
+    total_trades = successful_trades + unsuccessful_trades
+    success_rate = (successful_trades / total_trades * 100) if total_trades > 0 else 0
+    profit_rate = ((balance / initial_balance) - 1) * 100
+    
+    return {
+        'successful_trades': successful_trades,
+        'unsuccessful_trades': unsuccessful_trades,
+        'success_rate': success_rate,
+        'final_balance': balance,
+        'profit_rate': profit_rate,
+        'trade_closed': balance <= 0,
+        'transactions': transactions
+    }
+
+
 def main():
     print("Program başlıyor...")
     try:

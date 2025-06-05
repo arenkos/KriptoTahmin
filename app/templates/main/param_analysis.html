@@ -67,7 +67,7 @@
                     </thead>
                     <tbody>
                         {% for result in results %}
-                        <tr>
+                        <tr style="cursor: pointer;" onclick="window.location='{{ url_for('main.transaction_history', symbol=result.symbol, timeframe=result.timeframe) }}'">
                             <td>{{ result.symbol }}</td>
                             <td>{{ result.timeframe }}</td>
                             <td data-value="{{ result.leverage }}">{{ result.leverage }}x</td>
@@ -91,7 +91,7 @@
                                 </span>
                             </td>
                             <td>
-                                <a href="{{ url_for('main.apply_settings', symbol=result.symbol, timeframe=result.timeframe, leverage=result.leverage, stop_percentage=result.stop_percentage) }}" class="btn btn-sm btn-primary">Kullan</a>
+                                <a href="{{ url_for('main.transaction_history', symbol=result.symbol, timeframe=result.timeframe) }}" class="btn btn-sm btn-info">İşlem Geçmişi</a>
                             </td>
                         </tr>
                         {% endfor %}

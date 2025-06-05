@@ -44,15 +44,21 @@ class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     symbol = db.Column(db.String(20), nullable=False)
-    type = db.Column(db.String(10), nullable=False)  # BUY veya SELL
-    price = db.Column(db.Float, nullable=False)
-    amount = db.Column(db.Float, nullable=False)
-    leverage = db.Column(db.Float, default=1.0)
-    stop_loss = db.Column(db.Float)
-    take_profit = db.Column(db.Float)
-    status = db.Column(db.String(20), default='PENDING')  # PENDING, COMPLETED, CANCELLED
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    timeframe = db.Column(db.String(10), nullable=False)
+    trade_type = db.Column(db.String(10), nullable=False)  # 'LONG' veya 'SHORT'
+    entry_price = db.Column(db.Float, nullable=False)
+    exit_price = db.Column(db.Float, nullable=True)
+    entry_time = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    exit_time = db.Column(db.DateTime, nullable=True)
+    entry_balance = db.Column(db.Float, nullable=False)
+    exit_balance = db.Column(db.Float, nullable=True)
+    profit_loss = db.Column(db.Float, nullable=True)
+    trade_closed = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<Transaction {self.id}>'
 
 class AnalysisResult(db.Model):
     id = db.Column(db.Integer, primary_key=True)

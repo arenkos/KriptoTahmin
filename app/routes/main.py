@@ -419,33 +419,114 @@ def analyze_parameters():
         return render_template('main/analysis.html', error="Bir hata oluştu")
 
 @bp.route('/analysis')
+@login_required
 def analysis():
-    # Tüm desteklenen sembolleri al
-    symbols = SUPPORTED_SYMBOLS
+    """Parametre analizi sayfası"""
+    symbol = request.args.get('symbol', 'BTC/USDT')
     
-    # URL'den seçili sembolü al
-    selected_symbol = request.args.get('symbol')
+    # Desteklenen semboller
+    symbols = [
+        "BTC/USDT", "ETH/USDT", "BNB/USDT", "XRP/USDT", "ADA/USDT",
+        "DOGE/USDT", "SOL/USDT", "DOT/USDT", "AVAX/USDT", "1000SHIB/USDT",
+        "LINK/USDT", "UNI/USDT", "ATOM/USDT", "LTC/USDT", "ETC/USDT"
+    ]
     
-    # Veritabanından sonuçları çek
-    if selected_symbol:
-        # Belirli bir sembol için sonuçları al
-        results = AnalysisResult.query.filter_by(symbol=selected_symbol).order_by(AnalysisResult.profit_rate.desc()).all()
-        all_results = {selected_symbol: results}
-    else:
-        # Tüm sembollerin sonuçlarını al
-        results = AnalysisResult.query.order_by(AnalysisResult.profit_rate.desc()).limit(10).all()
-        # Sembollere göre grupla
-        all_results = {}
-        for result in AnalysisResult.query.all():
-            if result.symbol not in all_results:
-                all_results[result.symbol] = []
-            all_results[result.symbol].append(result)
+    # Analiz parametreleri
+    timeframes = ["1h", "4h", "1d"]
+    leverages = [1, 2, 3, 5, 10]
+    stop_losses = [1, 2, 3, 5]
+    take_profits = [2, 3, 5, 10]
+    atr_periods = [10, 14, 20]
+    atr_multipliers = [2, 3, 4]
     
-    return render_template('main/analysis.html',
-                         symbols=symbols,
-                         selected_symbol=selected_symbol,
+    results = []
+    
+    # Her parametre kombinasyonu için test yap
+    for timeframe in timeframes:
+        for leverage in leverages:
+            for stop_loss in stop_losses:
+                for take_profit in take_profits:
+                    for atr_period in atr_periods:
+                        for atr_multiplier in atr_multipliers:
+                            # Veriyi al
+                            df = fetch_data_from_db(symbol, timeframe)
+                            if df is None or df.empty:
+                                continue
+                            
+                            # Stratejiyi test et
+                            result = backtest_strategy(
+                                df,
+                                initial_balance=1000,  # Başlangıç bakiyesi
+                                leverage=leverage,
+                                stop_loss_percentage=stop_loss,
+                                take_profit_percentage=take_profit,
+                                atr_period=atr_period,
+                                atr_multiplier=atr_multiplier
+                            )
+                            
+                            # Sonuçları kaydet
+                            analysis_result = AnalysisResult(
+                                user_id=current_user.id,
+                                symbol=symbol,
+                                timeframe=timeframe,
+                                leverage=leverage,
+                                stop_loss=stop_loss,
+                                take_profit=take_profit,
+                                atr_period=atr_period,
+                                atr_multiplier=atr_multiplier,
+                                successful_trades=result['successful_trades'],
+                                unsuccessful_trades=result['unsuccessful_trades'],
+                                success_rate=result['success_rate'],
+                                final_balance=result['final_balance'],
+                                profit_rate=result['profit_rate'],
+                                trade_closed=result['trade_closed']
+                            )
+                            db.session.add(analysis_result)
+                            
+                            # İşlemleri kaydet
+                            for transaction in result['transactions']:
+                                db_transaction = Transaction(
+                                    user_id=current_user.id,
+                                    symbol=symbol,
+                                    timeframe=timeframe,
+                                    trade_type=transaction['trade_type'],
+                                    entry_price=transaction['entry_price'],
+                                    entry_time=transaction['entry_time'],
+                                    entry_balance=transaction['entry_balance'],
+                                    exit_price=transaction.get('exit_price'),
+                                    exit_time=transaction.get('exit_time'),
+                                    exit_balance=transaction.get('exit_balance'),
+                                    profit_loss=transaction.get('profit_loss'),
+                                    trade_closed=transaction['trade_closed']
+                                )
+                                db.session.add(db_transaction)
+                            
+                            results.append({
+                                'symbol': symbol,
+                                'timeframe': timeframe,
+                                'leverage': leverage,
+                                'stop_loss': stop_loss,
+                                'take_profit': take_profit,
+                                'atr_period': atr_period,
+                                'atr_multiplier': atr_multiplier,
+                                'successful_trades': result['successful_trades'],
+                                'unsuccessful_trades': result['unsuccessful_trades'],
+                                'success_rate': result['success_rate'],
+                                'final_balance': result['final_balance'],
+                                'profit_rate': result['profit_rate'],
+                                'trade_closed': result['trade_closed']
+                            })
+    
+    # Değişiklikleri kaydet
+    db.session.commit()
+    
+    # Sonuçları kar oranına göre sırala
+    results.sort(key=lambda x: x['profit_rate'], reverse=True)
+    
+    return render_template('main/param_analysis.html',
                          results=results,
-                         all_results=all_results)
+                         symbols=symbols,
+                         selected_symbol=symbol)
 
 @bp.route('/param_analysis')
 def param_analysis():
@@ -547,4 +628,28 @@ def apply_settings():
     db.session.commit()
     
     flash('Ayarlar başarıyla uygulandı', 'success')
-    return redirect(url_for('main.settings', settings_id=new_settings.id)) 
+    return redirect(url_for('main.settings', settings_id=new_settings.id))
+
+@bp.route('/transaction_history/<symbol>/<timeframe>')
+@login_required
+def transaction_history(symbol, timeframe):
+    """İşlem geçmişini göster"""
+    # Sayfalama için parametreleri al
+    page = request.args.get('page', 1, type=int)
+    per_page = 10  # Her sayfada gösterilecek işlem sayısı
+    
+    # İşlemleri sayfalandır
+    transactions = Transaction.query.filter_by(
+        user_id=current_user.id,
+        symbol=symbol,
+        timeframe=timeframe
+    ).order_by(Transaction.entry_time.desc()).paginate(
+        page=page, 
+        per_page=per_page,
+        error_out=False
+    )
+    
+    return render_template('main/transaction_history.html',
+                         transactions=transactions,
+                         symbol=symbol,
+                         timeframe=timeframe) 
