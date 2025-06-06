@@ -529,8 +529,8 @@ def deneme(zamanAraligi, df, lim):
                 continue
 
             for leverage in range(1, 21):  # 1-20 kaldıraç
-                for stop_pct in [i * 0.5 for i in range(1, 11)]:  # 0.5-5% stop
-                    for kar_al_pct in [i * 0.5 for i in range(1, 11)]:  # 0.5-5% kar al
+                for stop_pct in [i * 0.5 for i in range(0, 11)]:  # 0-5% stop
+                    for kar_al_pct in [i * 0.5 for i in range(0, 11)]:  # 0-5% kar al
 
                         optimization_count += 1
                         if optimization_count % 100 == 0:
@@ -578,7 +578,7 @@ def deneme(zamanAraligi, df, lim):
                                 # LONG pozisyonu için
                                 if position == 'LONG':
                                     # Stop loss kontrolü (mevcut mumda)
-                                    if low_array[i] <= entry_price * (1 - stop_pct/100):
+                                    if stop_pct > 0 and low_array[i] <= entry_price * (1 - stop_pct/100):
                                         exit_price = entry_price * (1 - stop_pct/100)
                                         profit_loss = (exit_price - entry_price) * leverage
                                         balance += profit_loss
@@ -595,7 +595,7 @@ def deneme(zamanAraligi, df, lim):
                                         break
 
                                     # Take profit kontrolü (mevcut mumda)
-                                    elif high_array[i] >= entry_price * (1 + kar_al_pct/100):
+                                    elif kar_al_pct > 0 and high_array[i] >= entry_price * (1 + kar_al_pct/100):
                                         exit_price = entry_price * (1 + kar_al_pct/100)
                                         profit_loss = (exit_price - entry_price) * leverage
                                         balance += profit_loss
@@ -617,7 +617,7 @@ def deneme(zamanAraligi, df, lim):
                                 # SHORT pozisyonu için
                                 elif position == 'SHORT':
                                     # Stop loss kontrolü (mevcut mumda)
-                                    if high_array[i] >= entry_price * (1 + stop_pct/100):
+                                    if stop_pct > 0 and high_array[i] >= entry_price * (1 + stop_pct/100):
                                         exit_price = entry_price * (1 + stop_pct/100)
                                         profit_loss = (entry_price - exit_price) * leverage
                                         balance += profit_loss
@@ -634,7 +634,7 @@ def deneme(zamanAraligi, df, lim):
                                         break
 
                                     # Take profit kontrolü (mevcut mumda)
-                                    elif low_array[i] <= entry_price * (1 - kar_al_pct/100):
+                                    elif kar_al_pct > 0 and low_array[i] <= entry_price * (1 - kar_al_pct/100):
                                         exit_price = entry_price * (1 - kar_al_pct/100)
                                         profit_loss = (entry_price - exit_price) * leverage
                                         balance += profit_loss
