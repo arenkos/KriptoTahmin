@@ -102,6 +102,24 @@ def create_db_connection():
     )
     ''')
 
+    # İşlem geçmişi için yeni tablo
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS backtest_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        analysis_id INTEGER NOT NULL,
+        trade_type TEXT NOT NULL,
+        entry_price REAL NOT NULL,
+        entry_time INTEGER NOT NULL,
+        entry_balance REAL NOT NULL,
+        exit_price REAL,
+        exit_time INTEGER,
+        exit_balance REAL,
+        profit_loss REAL,
+        trade_closed INTEGER NOT NULL,
+        FOREIGN KEY (analysis_id) REFERENCES analysis_results(id)
+    )
+    ''')
+
     conn.commit()
     return conn
 
@@ -167,7 +185,30 @@ def save_results_to_db(symbol, timeframe, leverage, stop_percentage, kar_al_perc
               atr_period, atr_multiplier, successful_trades, unsuccessful_trades,
               final_balance, success_rate, optimization_type))
 
-        print(f"DEBUG: Yeni kayıt eklendi - ID: {cursor.lastrowid}")
+        analysis_id = cursor.lastrowid
+        print(f"DEBUG: Yeni kayıt eklendi - ID: {analysis_id}")
+
+        # Backtest işlem geçmişini kaydet
+        if 'transactions' in locals():
+            for transaction in transactions:
+                cursor.execute('''
+                INSERT INTO backtest_transactions (
+                    analysis_id, trade_type, entry_price, entry_time,
+                    entry_balance, exit_price, exit_time, exit_balance,
+                    profit_loss, trade_closed
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    analysis_id,
+                    transaction['trade_type'],
+                    transaction['entry_price'],
+                    transaction['entry_time'],
+                    transaction['entry_balance'],
+                    transaction.get('exit_price'),
+                    transaction.get('exit_time'),
+                    transaction.get('exit_balance'),
+                    transaction.get('profit_loss'),
+                    1 if transaction['trade_closed'] else 0
+                ))
 
         conn.commit()
         print(f"DEBUG: Veritabanı commit edildi")
@@ -463,7 +504,7 @@ def deneme(zamanAraligi, df, lim):
 
     print(f"Optimizasyon başlıyor... Toplam {len(df)} veri noktası")
 
-    # Optimizasyon döngüleri - Daha hızlı test için azaltıldı
+    # Optimizasyon döngüleri
     optimization_count = 0
     total_optimizations = 10 * 20 * 20  # Yaklaşık hesaplama
 
@@ -488,8 +529,8 @@ def deneme(zamanAraligi, df, lim):
                 continue
 
             for leverage in range(1, 21):  # 1-20 kaldıraç
-                for stop_pct in [i * 0.5 for i in range(1, 11)]:  # 0.5-5% stop (daha az iterasyon)
-                    for kar_al_pct in [i * 0.5 for i in range(1, 11)]:  # 0.5-55% kar al
+                for stop_pct in [i * 0.5 for i in range(1, 11)]:  # 0.5-5% stop
+                    for kar_al_pct in [i * 0.5 for i in range(1, 11)]:  # 0.5-5% kar al
 
                         optimization_count += 1
                         if optimization_count % 100 == 0:
@@ -501,11 +542,14 @@ def deneme(zamanAraligi, df, lim):
                         balance = initial_balance
                         successful_trades = 0
                         unsuccessful_trades = 0
+                        position = None
+                        entry_price = 0
+                        entry_balance = 0
 
                         # ATR period'dan sonra başla
                         i = atr_period + 1
 
-                        while i < lim - 3:
+                        while i < lim - 1:  # Son mumu atla çünkü bir sonraki mumun verilerine ihtiyacımız var
                             if balance <= 0:
                                 break
 
@@ -515,118 +559,101 @@ def deneme(zamanAraligi, df, lim):
                                 i += 1
                                 continue
 
-                            # Supertrend sinyali kontrolü
-                            current_close = close_array[i]
-                            prev_close = close_array[i - 1]
-                            current_st = supertrend[i]
-                            prev_st = supertrend[i - 1]
+                            # Eğer pozisyon yoksa ve sinyal varsa
+                            if position is None:
+                                # LONG sinyali (önceki mumda LONG sinyali varsa ve şu anki mumun açılışında işleme gir)
+                                if close_array[i-1] > supertrend[i-1] and close_array[i-2] <= supertrend[i-2]:
+                                    position = 'LONG'
+                                    entry_price = open_array[i]  # Bir sonraki mumun açılışında işleme gir
+                                    entry_balance = balance
 
-                            trade_direction = None
-                            entry_price = None
+                                # SHORT sinyali (önceki mumda SHORT sinyali varsa ve şu anki mumun açılışında işleme gir)
+                                elif close_array[i-1] < supertrend[i-1] and close_array[i-2] >= supertrend[i-2]:
+                                    position = 'SHORT'
+                                    entry_price = open_array[i]  # Bir sonraki mumun açılışında işleme gir
+                                    entry_balance = balance
 
-                            # Long sinyal - Renk yeşile dönüyor
-                            if current_close > current_st and prev_close <= prev_st:
-                                trade_direction = "LONG"
-                                entry_price = open_array[i + 1] if i + 1 < len(open_array) else current_close
+                            # Eğer pozisyon varsa
+                            elif position is not None:
+                                # LONG pozisyonu için
+                                if position == 'LONG':
+                                    # Stop loss kontrolü (mevcut mumda)
+                                    if low_array[i] <= entry_price * (1 - stop_pct/100):
+                                        exit_price = entry_price * (1 - stop_pct/100)
+                                        profit_loss = (exit_price - entry_price) * leverage
+                                        balance += profit_loss
+                                        unsuccessful_trades += 1
+                                        position = None
 
-                            # Short sinyal - Renk kırmızıya dönüyor
-                            elif current_close < current_st and prev_close >= prev_st:
-                                trade_direction = "SHORT"
-                                entry_price = open_array[i + 1] if i + 1 < len(open_array) else current_close
+                                    # Likit olma kontrolü (mevcut mumda)
+                                    elif (entry_price - low_array[i]) * leverage >= entry_balance * 0.9:
+                                        exit_price = low_array[i]
+                                        profit_loss = (exit_price - entry_price) * leverage
+                                        balance = 0
+                                        unsuccessful_trades += 1
+                                        position = None
+                                        break
 
-                            if trade_direction and entry_price:
-                                # İşlem açıldı
-                                j = i + 1
-                                trade_closed = False
+                                    # Take profit kontrolü (mevcut mumda)
+                                    elif high_array[i] >= entry_price * (1 + kar_al_pct/100):
+                                        exit_price = entry_price * (1 + kar_al_pct/100)
+                                        profit_loss = (exit_price - entry_price) * leverage
+                                        balance += profit_loss
+                                        successful_trades += 1
+                                        position = None
 
-                                while j < lim and not trade_closed:
-                                    # NaN kontrolü
-                                    if (j >= len(supertrend) or math.isnan(supertrend[j]) or
-                                            j - 1 < 0 or math.isnan(supertrend[j - 1])):
-                                        j += 1
-                                        continue
-
-                                    current_high = high_array[j]
-                                    current_low = low_array[j]
-                                    current_close_j = close_array[j]
-                                    current_st_j = supertrend[j]
-                                    prev_close_j = close_array[j - 1] if j > 0 else current_close_j
-                                    prev_st_j = supertrend[j - 1] if j > 0 else current_st_j
-
-                                    if trade_direction == "LONG":
-                                        loss_pct = (current_low - entry_price) / entry_price * 100
-
-                                        # Stop loss kontrolü
-                                        if loss_pct <= -stop_pct and not stop_pct <= -90 / leverage:
-                                            balance += balance * (-stop_pct / 100) * leverage
-                                            unsuccessful_trades += 1
-                                            trade_closed = True
-
-                                        # Likit kontrolü
-                                        elif loss_pct <= -90 / leverage:
-                                            balance = 0
-                                            unsuccessful_trades += 1
-                                            trade_closed = True
-                                            break
-
-                                        # Kar al kontrolü
-                                        profit_pct = (current_high - entry_price) / entry_price * 100
-                                        if profit_pct >= kar_al_pct:
-                                            balance += balance * (kar_al_pct / 100) * leverage
-                                            successful_trades += 1
-                                            trade_closed = True
-
-                                        # Sinyal ile çıkış - Short sinyali
-                                        elif current_close_j < current_st_j and prev_close_j >= prev_st_j:
-                                            exit_price = open_array[j + 1] if j + 1 < len(
-                                                open_array) else current_close_j
-                                            profit_pct = (exit_price - entry_price) / entry_price * 100
-                                            balance += balance * (profit_pct / 100) * leverage
-                                            if profit_pct > 0:
+                                    # Trend değişimi kontrolü (bir sonraki mumun açılışında)
+                                    elif close_array[i] < supertrend[i] and close_array[i-1] >= supertrend[i-1]:
+                                        if i + 1 < len(open_array):
+                                            exit_price = open_array[i + 1]  # Bir sonraki mumun açılışında çık
+                                            profit_loss = (exit_price - entry_price) * leverage
+                                            balance += profit_loss
+                                            if profit_loss > 0:
                                                 successful_trades += 1
                                             else:
                                                 unsuccessful_trades += 1
-                                            trade_closed = True
+                                            position = None
 
-                                    elif trade_direction == "SHORT":
-                                        loss_pct = (current_high - entry_price) / entry_price * 100
-                                        # Stop loss kontrolü
-                                        if loss_pct >= stop_pct and not stop_pct >= 90 / leverage:
-                                            balance += balance * (-stop_pct / 100) * leverage
-                                            unsuccessful_trades += 1
-                                            trade_closed = True
+                                # SHORT pozisyonu için
+                                elif position == 'SHORT':
+                                    # Stop loss kontrolü (mevcut mumda)
+                                    if high_array[i] >= entry_price * (1 + stop_pct/100):
+                                        exit_price = entry_price * (1 + stop_pct/100)
+                                        profit_loss = (entry_price - exit_price) * leverage
+                                        balance += profit_loss
+                                        unsuccessful_trades += 1
+                                        position = None
 
-                                        # Likit kontrolü
-                                        elif loss_pct >= 90 / leverage:
-                                            balance = 0
-                                            unsuccessful_trades += 1
-                                            trade_closed = True
-                                            break
+                                    # Likit olma kontrolü (mevcut mumda)
+                                    elif (high_array[i] - entry_price) * leverage >= entry_balance * 0.9:
+                                        exit_price = high_array[i]
+                                        profit_loss = (entry_price - exit_price) * leverage
+                                        balance = 0
+                                        unsuccessful_trades += 1
+                                        position = None
+                                        break
 
-                                        # Kar al kontrolü
-                                        profit_pct = (entry_price - current_low) / entry_price * 100
-                                        if profit_pct >= kar_al_pct:
-                                            balance += balance * (kar_al_pct / 100) * leverage
-                                            successful_trades += 1
-                                            trade_closed = True
+                                    # Take profit kontrolü (mevcut mumda)
+                                    elif low_array[i] <= entry_price * (1 - kar_al_pct/100):
+                                        exit_price = entry_price * (1 - kar_al_pct/100)
+                                        profit_loss = (entry_price - exit_price) * leverage
+                                        balance += profit_loss
+                                        successful_trades += 1
+                                        position = None
 
-                                        # Sinyal ile çıkış - Long sinyali
-                                        elif current_close_j > current_st_j and prev_close_j <= prev_st_j:
-                                            exit_price = open_array[j + 1] if j + 1 < len(
-                                                open_array) else current_close_j
-                                            profit_pct = (entry_price - exit_price) / entry_price * 100
-                                            balance += balance * (profit_pct / 100) * leverage
-                                            if profit_pct > 0:
+                                    # Trend değişimi kontrolü (bir sonraki mumun açılışında)
+                                    elif close_array[i] > supertrend[i] and close_array[i-1] <= supertrend[i-1]:
+                                        if i + 1 < len(open_array):
+                                            exit_price = open_array[i + 1]  # Bir sonraki mumun açılışında çık
+                                            profit_loss = (entry_price - exit_price) * leverage
+                                            balance += profit_loss
+                                            if profit_loss > 0:
                                                 successful_trades += 1
                                             else:
                                                 unsuccessful_trades += 1
-                                            trade_closed = True
+                                            position = None
 
-                                    j += 1
-
-                                i = j if trade_closed else i + 1
-                            else:
-                                i += 1
+                            i += 1
 
                         # Sonuçları değerlendir
                         total_trades = successful_trades + unsuccessful_trades
@@ -670,14 +697,15 @@ def deneme(zamanAraligi, df, lim):
     }
 
 
-def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_profit_percentage, atr_period, atr_multiplier):
+def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_profit_percentage, atr_period,
+                      atr_multiplier):
     """
     Stratejiyi backtest eder ve sonuçları döndürür.
     İşleme girişleri bir sonraki mumun açılışında yapılır.
     """
     # Supertrend hesapla
     df = generateSupertrend(df['close'].values, df['high'].values, df['low'].values, atr_period, atr_multiplier)
-    
+
     balance = initial_balance
     position = None
     entry_price = 0
@@ -685,12 +713,12 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
     successful_trades = 0
     unsuccessful_trades = 0
     transactions = []
-    
+
     # İlk mumu atla çünkü bir önceki mumun verilerine ihtiyacımız var
     for i in range(1, len(df)):
         current_row = df.iloc[i]
-        previous_row = df.iloc[i-1]
-        
+        previous_row = df.iloc[i - 1]
+
         # Eğer pozisyon yoksa ve sinyal varsa
         if position is None:
             # LONG sinyali (önceki mumda LONG sinyali varsa ve şu anki mumun açılışında işleme gir)
@@ -705,7 +733,7 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
                     'entry_balance': entry_balance,
                     'trade_closed': False
                 })
-            
+
             # SHORT sinyali (önceki mumda SHORT sinyali varsa ve şu anki mumun açılışında işleme gir)
             elif previous_row['supertrend'] == -1 and previous_row['supertrend_prev'] == 1:
                 position = 'SHORT'
@@ -718,19 +746,19 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
                     'entry_balance': entry_balance,
                     'trade_closed': False
                 })
-        
+
         # Eğer pozisyon varsa
         elif position is not None:
             # LONG pozisyonu için
             if position == 'LONG':
                 # Stop loss kontrolü
-                if current_row['low'] <= entry_price * (1 - stop_loss_percentage/100):
-                    exit_price = entry_price * (1 - stop_loss_percentage/100)
+                if current_row['low'] <= entry_price * (1 - stop_loss_percentage / 100):
+                    exit_price = entry_price * (1 - stop_loss_percentage / 100)
                     profit_loss = (exit_price - entry_price) * leverage
                     balance += profit_loss
                     unsuccessful_trades += 1
                     position = None
-                    
+
                     # İşlemi güncelle
                     transactions[-1].update({
                         'exit_price': exit_price,
@@ -739,15 +767,15 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
                         'profit_loss': profit_loss,
                         'trade_closed': True
                     })
-                
+
                 # Take profit kontrolü
-                elif current_row['high'] >= entry_price * (1 + take_profit_percentage/100):
-                    exit_price = entry_price * (1 + take_profit_percentage/100)
+                elif current_row['high'] >= entry_price * (1 + take_profit_percentage / 100):
+                    exit_price = entry_price * (1 + take_profit_percentage / 100)
                     profit_loss = (exit_price - entry_price) * leverage
                     balance += profit_loss
                     successful_trades += 1
                     position = None
-                    
+
                     # İşlemi güncelle
                     transactions[-1].update({
                         'exit_price': exit_price,
@@ -756,7 +784,7 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
                         'profit_loss': profit_loss,
                         'trade_closed': True
                     })
-                
+
                 # Trend değişimi kontrolü
                 elif current_row['supertrend'] == -1:
                     exit_price = current_row['close']
@@ -767,7 +795,7 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
                     else:
                         unsuccessful_trades += 1
                     position = None
-                    
+
                     # İşlemi güncelle
                     transactions[-1].update({
                         'exit_price': exit_price,
@@ -776,17 +804,17 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
                         'profit_loss': profit_loss,
                         'trade_closed': True
                     })
-            
+
             # SHORT pozisyonu için
             elif position == 'SHORT':
                 # Stop loss kontrolü
-                if current_row['high'] >= entry_price * (1 + stop_loss_percentage/100):
-                    exit_price = entry_price * (1 + stop_loss_percentage/100)
+                if current_row['high'] >= entry_price * (1 + stop_loss_percentage / 100):
+                    exit_price = entry_price * (1 + stop_loss_percentage / 100)
                     profit_loss = (entry_price - exit_price) * leverage
                     balance += profit_loss
                     unsuccessful_trades += 1
                     position = None
-                    
+
                     # İşlemi güncelle
                     transactions[-1].update({
                         'exit_price': exit_price,
@@ -795,15 +823,15 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
                         'profit_loss': profit_loss,
                         'trade_closed': True
                     })
-                
+
                 # Take profit kontrolü
-                elif current_row['low'] <= entry_price * (1 - take_profit_percentage/100):
-                    exit_price = entry_price * (1 - take_profit_percentage/100)
+                elif current_row['low'] <= entry_price * (1 - take_profit_percentage / 100):
+                    exit_price = entry_price * (1 - take_profit_percentage / 100)
                     profit_loss = (entry_price - exit_price) * leverage
                     balance += profit_loss
                     successful_trades += 1
                     position = None
-                    
+
                     # İşlemi güncelle
                     transactions[-1].update({
                         'exit_price': exit_price,
@@ -812,7 +840,7 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
                         'profit_loss': profit_loss,
                         'trade_closed': True
                     })
-                
+
                 # Trend değişimi kontrolü
                 elif current_row['supertrend'] == 1:
                     exit_price = current_row['close']
@@ -823,7 +851,7 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
                     else:
                         unsuccessful_trades += 1
                     position = None
-                    
+
                     # İşlemi güncelle
                     transactions[-1].update({
                         'exit_price': exit_price,
@@ -832,7 +860,7 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
                         'profit_loss': profit_loss,
                         'trade_closed': True
                     })
-        
+
         # Bakiye kontrolü
         if balance <= 0:
             # Açık işlemleri kapat
@@ -842,7 +870,7 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
                     profit_loss = (exit_price - entry_price) * leverage
                 else:
                     profit_loss = (entry_price - exit_price) * leverage
-                
+
                 transactions[-1].update({
                     'exit_price': exit_price,
                     'exit_time': current_row.name,
@@ -850,10 +878,10 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
                     'profit_loss': profit_loss,
                     'trade_closed': True
                 })
-            
+
             balance = 0
             break
-    
+
     # Son işlem hala açıksa kapat
     if position is not None:
         last_row = df.iloc[-1]
@@ -862,7 +890,7 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
             profit_loss = (exit_price - entry_price) * leverage
         else:
             profit_loss = (entry_price - exit_price) * leverage
-        
+
         transactions[-1].update({
             'exit_price': exit_price,
             'exit_time': last_row.name,
@@ -870,11 +898,11 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
             'profit_loss': profit_loss,
             'trade_closed': True
         })
-    
+
     total_trades = successful_trades + unsuccessful_trades
     success_rate = (successful_trades / total_trades * 100) if total_trades > 0 else 0
     profit_rate = ((balance / initial_balance) - 1) * 100
-    
+
     return {
         'successful_trades': successful_trades,
         'unsuccessful_trades': unsuccessful_trades,
@@ -894,28 +922,121 @@ def main():
         print("Veritabanı bağlantısı kuruldu.")
 
         if os.path.exists("crypto_data.db"):
-            print("Veritabanı bulundu. Mevcut verilerle analiz yapılacak.")
+            print("Veritabanı bulundu. Kontroller yapılıyor...")
 
-            # HATA DÜZELTİLDİ: fetchone() parantez eklendi
+            # OHLCV veri kontrolü
             cursor.execute("SELECT COUNT(*) FROM ohlcv_data")
-            data_count = cursor.fetchone()[0]  # [0] eklenmiş
-            print(f"Veritabanında {data_count} adet veri bulundu.")
+            data_count = cursor.fetchone()[0]
+            print(f"Veritabanında {data_count} adet OHLCV verisi bulundu.")
 
-            if data_count == 0:
-                print("Veritabanı boş. API'den veri çekilecek.")
-                fetch_data_from_api(conn)
+            # Analysis results kontrolü
+            cursor.execute("SELECT COUNT(*) FROM analysis_results")
+            analysis_count = cursor.fetchone()[0]
+            print(f"Veritabanında {analysis_count} adet analiz sonucu bulundu.")
+
+            if analysis_count >= 300:
+                print("Yeterli sayıda analiz sonucu bulundu. İşlem geçmişi oluşturuluyor...")
+                generate_backtest_transactions(conn)
             else:
-                analyze_existing_data(conn)
+                if data_count == 0:
+                    print("Veritabanı boş. API'den veri çekilecek.")
+                    fetch_data_from_api(conn)
+                else:
+                    print("Mevcut verilerle analiz yapılacak.")
+                    analyze_existing_data(conn)
         else:
             print("Veritabanı bulunamadı. API'den veri çekilecek.")
             fetch_data_from_api(conn)
 
         conn.close()
-        print("\nTüm analizler tamamlandı!")
+        print("\nTüm işlemler tamamlandı!")
 
     except Exception as e:
         print(f"Ana program hatası: {str(e)}")
         traceback.print_exc()
+
+
+def generate_backtest_transactions(conn):
+    """
+    Analysis results tablosundaki kayıtlara göre işlem geçmişini oluşturur
+    """
+    try:
+        cursor = conn.cursor()
+        
+        # Analysis results tablosundan tüm kayıtları al
+        cursor.execute("""
+        SELECT id, symbol, timeframe, leverage, stop_percentage, kar_al_percentage,
+               atr_period, atr_multiplier
+        FROM analysis_results
+        """)
+        analysis_records = cursor.fetchall()
+        
+        print(f"Toplam {len(analysis_records)} adet analiz sonucu için işlem geçmişi oluşturulacak.")
+        
+        for record in analysis_records:
+            analysis_id, symbol, timeframe, leverage, stop_loss, take_profit, atr_period, atr_multiplier = record
+            
+            print(f"\n{symbol} - {timeframe} için işlem geçmişi oluşturuluyor...")
+            
+            # OHLCV verilerini al
+            cursor.execute("""
+            SELECT timestamp, open, high, low, close
+            FROM ohlcv_data
+            WHERE symbol = ? AND timeframe = ?
+            ORDER BY timestamp
+            """, (symbol, timeframe))
+            
+            ohlcv_data = cursor.fetchall()
+            
+            if not ohlcv_data:
+                print(f"Uyarı: {symbol} - {timeframe} için OHLCV verisi bulunamadı.")
+                continue
+            
+            # DataFrame oluştur
+            df = pd.DataFrame(ohlcv_data, columns=['timestamp', 'open', 'high', 'low', 'close'])
+            df.set_index('timestamp', inplace=True)
+            
+            # Backtest yap
+            result = backtest_strategy(
+                df,
+                initial_balance=100,
+                leverage=leverage,
+                stop_loss_percentage=stop_loss,
+                take_profit_percentage=take_profit,
+                atr_period=atr_period,
+                atr_multiplier=atr_multiplier
+            )
+            
+            # İşlem geçmişini kaydet
+            for transaction in result['transactions']:
+                cursor.execute('''
+                INSERT INTO backtest_transactions (
+                    analysis_id, trade_type, entry_price, entry_time,
+                    entry_balance, exit_price, exit_time, exit_balance,
+                    profit_loss, trade_closed
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    analysis_id,
+                    transaction['trade_type'],
+                    transaction['entry_price'],
+                    transaction['entry_time'],
+                    transaction['entry_balance'],
+                    transaction.get('exit_price'),
+                    transaction.get('exit_time'),
+                    transaction.get('exit_balance'),
+                    transaction.get('profit_loss'),
+                    1 if transaction['trade_closed'] else 0
+                ))
+            
+            conn.commit()
+            print(f"{symbol} - {timeframe} için işlem geçmişi kaydedildi.")
+        
+        print("\nTüm işlem geçmişleri oluşturuldu ve kaydedildi.")
+        
+    except Exception as e:
+        print(f"İşlem geçmişi oluşturma hatası: {str(e)}")
+        traceback.print_exc()
+        conn.rollback()
 
 
 def fetch_data_from_api(conn):
@@ -1075,6 +1196,7 @@ def check_database_status():
     except Exception as e:
         print(f"Veritabanı kontrol hatası: {e}")
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     print("=== VERİTABANI DURUM KONTROLÜ ===")
