@@ -14,6 +14,8 @@ import concurrent.futures
 import sqlite3
 import subprocess
 import signal
+import traceback
+import struct
 
 from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify, current_app
 
@@ -633,23 +635,115 @@ def apply_settings():
 @bp.route('/transaction_history/<symbol>/<timeframe>')
 @login_required
 def transaction_history(symbol, timeframe):
-    """İşlem geçmişini göster"""
-    # Sayfalama için parametreleri al
-    page = request.args.get('page', 1, type=int)
-    per_page = 10  # Her sayfada gösterilecek işlem sayısı
-    
-    # İşlemleri sayfalandır
-    transactions = Transaction.query.filter_by(
-        user_id=current_user.id,
-        symbol=symbol,
-        timeframe=timeframe
-    ).order_by(Transaction.entry_time.desc()).paginate(
-        page=page, 
-        per_page=per_page,
-        error_out=False
-    )
-    
-    return render_template('main/transaction_history.html',
-                         transactions=transactions,
-                         symbol=symbol,
-                         timeframe=timeframe) 
+    try:
+        # Sayfalama için parametreleri al
+        page = request.args.get('page', 1, type=int)
+        per_page = 10  # Sayfa başına gösterilecek işlem sayısı
+
+        # SQLite veritabanına bağlan
+        conn = sqlite3.connect('crypto_data.db')
+        cursor = conn.cursor()
+
+        # En güncel analysis_id'yi bul
+        cursor.execute("""
+            SELECT id FROM analysis_results
+            WHERE symbol = ? AND timeframe = ?
+            ORDER BY created_at DESC LIMIT 1
+        """, (symbol, timeframe))
+        row = cursor.fetchone()
+        if not row:
+            total = 0
+            transactions = []
+        else:
+            latest_analysis_id = row[0]
+            # Toplam işlem sayısı
+            cursor.execute("""
+                SELECT COUNT(*) FROM backtest_transactions
+                WHERE analysis_id = ?
+            """, (latest_analysis_id,))
+            total = cursor.fetchone()[0]
+            # Sayfalama için offset hesapla
+            offset = (page - 1) * per_page
+            # İşlemleri getir
+            cursor.execute("""
+                SELECT trade_type, entry_price, entry_time, entry_balance,
+                       exit_price, exit_time, exit_balance, profit_loss, trade_closed
+                FROM backtest_transactions
+                WHERE analysis_id = ?
+                ORDER BY entry_time DESC
+                LIMIT ? OFFSET ?
+            """, (latest_analysis_id, per_page, offset))
+            transactions_data = cursor.fetchall()
+
+            # Verileri işle
+            transactions = []
+            for t in transactions_data:
+                try:
+                    # Timestamp'i kontrol et (milisaniye mi, saniye mi?)
+                    entry_timestamp = int(t[2]) if t[2] else None
+                    exit_timestamp = int(t[5]) if t[5] else None
+                    # Milisaniye/saniye ayrımı: 10 haneli ise saniye, 13 haneli ise milisaniye
+                    def ts_to_dt(ts):
+                        if not ts:
+                            return None
+                        ts = int(ts)
+                        if len(str(ts)) > 10:
+                            return datetime.fromtimestamp(ts / 1000)
+                        else:
+                            return datetime.fromtimestamp(ts)
+                    transaction = {
+                        'trade_type': t[0],
+                        'entry_price': t[1],
+                        'entry_time': ts_to_dt(entry_timestamp),
+                        'entry_balance': t[3],
+                        'exit_price': t[4],
+                        'exit_time': ts_to_dt(exit_timestamp),
+                        'exit_balance': t[6],
+                        'profit_loss': t[7],
+                        'trade_closed': bool(t[8])
+                    }
+                    transactions.append(transaction)
+                except Exception as e:
+                    print(f"İşlem dönüştürme hatası: {str(e)}")
+                    continue
+
+        # Sayfalama sınıfı
+        class Pagination:
+            def __init__(self, items, page, per_page, total):
+                self.items = items
+                self.page = page
+                self.per_page = per_page
+                self.total = total
+                self.pages = (total + per_page - 1) // per_page
+                self.has_prev = page > 1
+                self.has_next = page < self.pages
+                self.prev_num = page - 1
+                self.next_num = page + 1
+
+            def iter_pages(self, left_edge=2, left_current=2, right_current=3, right_edge=2):
+                last = 0
+                for num in range(1, self.pages + 1):
+                    if (num <= left_edge or
+                        (num > self.page - left_current - 1 and
+                         num < self.page + right_current) or
+                        num > self.pages - right_edge + 1):
+                        if last + 1 != num:
+                            yield None
+                        yield num
+                        last = num
+
+        # Sayfalama nesnesi oluştur
+        pagination = Pagination(transactions, page, per_page, total)
+
+        conn.close()
+
+        return render_template('main/transaction_history.html',
+                             symbol=symbol,
+                             timeframe=timeframe,
+                             transactions=pagination)
+
+    except Exception as e:
+        print(f"İşlem geçmişi yüklenirken hata: {str(e)}")
+        traceback.print_exc()
+        flash('İşlem geçmişi yüklenirken bir hata oluştu. Lütfen daha sonra tekrar deneyin.', 'error')
+        return redirect(url_for('main.dashboard')) 

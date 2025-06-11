@@ -6,12 +6,25 @@ def get_db_connection():
     return conn
 
 
-def read():
+def read_analiz():
     conn = get_db_connection()
 
     query = """
     SELECT *
     FROM analysis_results;
+    """
+
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+
+    print(df)
+
+def read_islemler():
+    conn = get_db_connection()
+
+    query = """
+    SELECT COUNT(*)
+    FROM backtest_transactions ;
     """
 
     df = pd.read_sql_query(query, conn)
@@ -36,12 +49,24 @@ def tablo_liste():
     # Bağlantıyı kapat
     conn.close()
 
-def delete():
+def delete_analiz():
     conn = get_db_connection()
     cursor = conn.cursor()
 
     query = """
     DELETE FROM analysis_results;
+    """
+
+    cursor.execute(query)
+    conn.commit()
+    conn.close()
+
+def delete_islemler():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    query = """
+    DELETE FROM backtest_transactions;
     """
 
     cursor.execute(query)
@@ -108,13 +133,19 @@ if __name__ == "__main__":
     print("Veritabanındaki tekrarlanan kayıtları kontrol ediyorum...")
     #find_duplicates()
     #tablo_liste()
-    read()
+    response = input("\nAnaliz tablosu mu İşlemler tablosu mu (a/i): ")
+    if response.lower() == 'a':
+        read_analiz()
+    elif response.lower() == 'i':
+        read_islemler()
     #delete()
     response = input("\nAnaliz tablosunu temizlemek istiyor musunuz? (e/h): ")
-    if response.lower() == 'e':
-        delete()
+    if response.lower() == 'ea':
+        delete_analiz()
+    elif response.lower() == 'ei':
+        delete_islemler()
     #response = input("\nTekrarlanan kayıtları temizlemek istiyor musunuz? (e/h): ")
-    response = "a"
+    response = "."
     if response.lower() == 'e':
         clean_duplicates()
         print("\nTemizlik sonrası kontrol:")

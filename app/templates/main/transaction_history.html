@@ -38,32 +38,14 @@
                                 <span class="badge bg-danger">SHORT</span>
                                 {% endif %}
                             </td>
-                            <td>{{ transaction.entry_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-                            <td>{{ "%.4f"|format(transaction.entry_price) }}</td>
-                            <td>{{ "%.2f"|format(transaction.entry_balance) }} USDT</td>
+                            <td>{{ transaction.entry_time.strftime('%Y-%m-%d %H:%M:%S') if transaction.entry_time else '-' }}</td>
+                            <td>{{ "%.4f"|format(transaction.entry_price) if transaction.entry_price else '-' }}</td>
+                            <td>{{ "%.2f"|format(transaction.entry_balance) if transaction.entry_balance else '-' }} USDT</td>
+                            <td>{{ transaction.exit_time.strftime('%Y-%m-%d %H:%M:%S') if transaction.exit_time else '-' }}</td>
+                            <td>{{ "%.4f"|format(transaction.exit_price) if transaction.exit_price else '-' }}</td>
+                            <td>{{ "%.2f"|format(transaction.exit_balance) if transaction.exit_balance else '-' }} USDT</td>
                             <td>
-                                {% if transaction.exit_time %}
-                                {{ transaction.exit_time.strftime('%Y-%m-%d %H:%M:%S') }}
-                                {% else %}
-                                -
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if transaction.exit_price %}
-                                {{ "%.4f"|format(transaction.exit_price) }}
-                                {% else %}
-                                -
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if transaction.exit_balance %}
-                                {{ "%.2f"|format(transaction.exit_balance) }} USDT
-                                {% else %}
-                                -
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if transaction.profit_loss %}
+                                {% if transaction.profit_loss is not none %}
                                 <span class="{% if transaction.profit_loss > 0 %}text-success{% else %}text-danger{% endif %}">
                                     {{ "%.2f"|format(transaction.profit_loss) }} USDT
                                 </span>
@@ -122,7 +104,7 @@
 
             <!-- Toplam sonuç sayısı -->
             <div class="text-center text-muted mt-3">
-                Toplam {{ transactions.total }} işlem bulundu, sayfa başına 10 işlem gösteriliyor.
+                Toplam {{ transactions.total }} işlem bulundu, sayfa başına {{ transactions.per_page }} işlem gösteriliyor.
             </div>
         </div>
     </div>

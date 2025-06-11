@@ -825,26 +825,11 @@ def deneme(zamanAraligi, df, lim):
     }
 
 
-# Yardımcı fonksiyon: timestamp'i int'e çevir
-def to_int_timestamp(val):
-    if isinstance(val, (int, np.integer)):
-        return int(val)
-    elif isinstance(val, float):
-        return int(val)
-    elif isinstance(val, bytes):
-        return int.from_bytes(val, byteorder='little', signed=False)
-    elif isinstance(val, str) and val.isdigit():
-        return int(val)
-    else:
-        raise ValueError(f"Geçersiz timestamp formatı: {val}")
-
-
-def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_profit_percentage, atr_period, atr_multiplier):
+def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_profit_percentage, atr_period,
+                      atr_multiplier):
     """
     Stratejiyi backtest eder ve sonuçları döndürür.
     İşleme girişleri bir sonraki mumun açılışında yapılır.
-    Bakiyeyi yüzdeyle günceller (kripto_test.py'deki deneme fonksiyonu gibi).
-    Giriş ve çıkış zamanları gerçek timestamp olarak kaydedilir.
     """
     # Veri hazırlığı
     df = df.copy()
@@ -855,181 +840,255 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
     df = df.dropna(subset=['open', 'high', 'low', 'close'])
     df = df.reset_index(drop=True)
 
-    if 'timestamp' not in df.columns:
-        raise ValueError('DataFrame içinde timestamp sütunu yok!')
-
+    # Supertrend hesapla
     supertrend = generateSupertrend(df['close'].values, df['high'].values, df['low'].values, atr_period, atr_multiplier)
+    df['supertrend'] = supertrend
 
     balance = initial_balance
+    position = None
+    entry_price = 0
+    entry_balance = 0
     successful_trades = 0
     unsuccessful_trades = 0
     transactions = []
 
-    lim = len(df)
+    # ATR period'dan sonra başla
     i = atr_period + 1
-    while i < lim - 3:
+
+    while i < len(df) - 1:  # Son mumu atla çünkü bir sonraki mumun verilerine ihtiyacımız var
         if balance <= 0:
             break
-        if (math.isnan(supertrend[i]) or math.isnan(supertrend[i - 1]) or i - 1 < 0 or i >= len(df)):
+
+        # NaN kontrolü
+        if (math.isnan(supertrend[i]) or math.isnan(supertrend[i - 1]) or
+                i - 1 < 0 or i >= len(df)):
             i += 1
             continue
-        current_close = df['close'].iloc[i]
-        prev_close = df['close'].iloc[i - 1]
-        current_st = supertrend[i]
-        prev_st = supertrend[i - 1]
-        trade_direction = None
-        entry_price = None
-        # Long sinyal
-        if current_close > current_st and prev_close <= prev_st:
-            trade_direction = "LONG"
-            entry_price = df['open'].iloc[i + 1] if i + 1 < len(df) else current_close
-        # Short sinyal
-        elif current_close < current_st and prev_close >= prev_st:
-            trade_direction = "SHORT"
-            entry_price = df['open'].iloc[i + 1] if i + 1 < len(df) else current_close
-        if trade_direction and entry_price:
-            entry_balance = balance
-            entry_time = to_int_timestamp(df['timestamp'].iloc[i])
-            transactions.append({
-                'trade_type': trade_direction,
-                'entry_price': entry_price,
-                'entry_time': entry_time,
-                'entry_balance': entry_balance,
-                'trade_closed': False
-            })
-            j = i + 1
-            trade_closed = False
-            while j < lim and not trade_closed:
-                if (j >= len(supertrend) or math.isnan(supertrend[j]) or j - 1 < 0 or math.isnan(supertrend[j - 1])):
-                    j += 1
-                    continue
-                current_high = df['high'].iloc[j]
-                current_low = df['low'].iloc[j]
-                current_close_j = df['close'].iloc[j]
-                current_st_j = supertrend[j]
-                prev_close_j = df['close'].iloc[j - 1] if j > 0 else current_close_j
-                prev_st_j = supertrend[j - 1] if j > 0 else current_st_j
-                if trade_direction == "LONG":
-                    loss_pct = (current_low - entry_price) / entry_price * 100
-                    # Stop loss
-                    if loss_pct <= -stop_loss_percentage and not stop_loss_percentage <= -90 / leverage:
-                        balance += balance * (-stop_loss_percentage / 100) * leverage
-                        unsuccessful_trades += 1
-                        trade_closed = True
-                        transactions[-1].update({
-                            'exit_price': entry_price * (1 - stop_loss_percentage / 100),
-                            'exit_time': to_int_timestamp(df['timestamp'].iloc[j]),
-                            'exit_balance': balance,
-                            'profit_loss': balance - entry_balance,
-                            'trade_closed': True
-                        })
-                    # Likit
-                    elif loss_pct <= -90 / leverage:
-                        balance = 0
-                        unsuccessful_trades += 1
-                        trade_closed = True
-                        transactions[-1].update({
-                            'exit_price': current_low,
-                            'exit_time': to_int_timestamp(df['timestamp'].iloc[j]),
-                            'exit_balance': 0,
-                            'profit_loss': -entry_balance,
-                            'trade_closed': True
-                        })
-                        break
-                    # Kar al
-                    profit_pct = (current_high - entry_price) / entry_price * 100
-                    if profit_pct >= take_profit_percentage:
-                        balance += balance * (take_profit_percentage / 100) * leverage
-                        successful_trades += 1
-                        trade_closed = True
-                        transactions[-1].update({
-                            'exit_price': entry_price * (1 + take_profit_percentage / 100),
-                            'exit_time': to_int_timestamp(df['timestamp'].iloc[j]),
-                            'exit_balance': balance,
-                            'profit_loss': balance - entry_balance,
-                            'trade_closed': True
-                        })
-                    # Sinyal ile çıkış - Short sinyali
-                    elif current_close_j < current_st_j and prev_close_j >= prev_st_j:
-                        exit_price = df['open'].iloc[j + 1] if j + 1 < len(df) else current_close_j
-                        profit_pct = (exit_price - entry_price) / entry_price * 100
-                        balance += balance * (profit_pct / 100) * leverage
-                        if profit_pct > 0:
+
+        # Eğer pozisyon yoksa ve sinyal varsa
+        if position is None:
+            # LONG sinyali (önceki mumda LONG sinyali varsa ve şu anki mumun açılışında işleme gir)
+            if df['close'].iloc[i-1] > supertrend[i-1] and df['close'].iloc[i-2] <= supertrend[i-2]:
+                position = 'LONG'
+                entry_price = df['open'].iloc[i]  # Bir sonraki mumun açılışında işleme gir
+                entry_balance = balance
+                transactions.append({
+                    'trade_type': 'LONG',
+                    'entry_price': entry_price,
+                    'entry_time': df.index[i],
+                    'entry_balance': entry_balance,
+                    'trade_closed': False
+                })
+
+            # SHORT sinyali (önceki mumda SHORT sinyali varsa ve şu anki mumun açılışında işleme gir)
+            elif df['close'].iloc[i-1] < supertrend[i-1] and df['close'].iloc[i-2] >= supertrend[i-2]:
+                position = 'SHORT'
+                entry_price = df['open'].iloc[i]  # Bir sonraki mumun açılışında işleme gir
+                entry_balance = balance
+                transactions.append({
+                    'trade_type': 'SHORT',
+                    'entry_price': entry_price,
+                    'entry_time': df.index[i],
+                    'entry_balance': entry_balance,
+                    'trade_closed': False
+                })
+
+        # Eğer pozisyon varsa
+        elif position is not None:
+            # LONG pozisyonu için
+            if position == 'LONG':
+                # Stop loss kontrolü (mevcut mumda)
+                if stop_loss_percentage > 0 and df['low'].iloc[i] <= entry_price * (1 - stop_loss_percentage/100):
+                    exit_price = entry_price * (1 - stop_loss_percentage/100)
+                    profit_loss = (exit_price - entry_price) * leverage
+                    balance += profit_loss
+                    unsuccessful_trades += 1
+                    position = None
+                    transactions[-1].update({
+                        'exit_price': exit_price,
+                        'exit_time': df.index[i],
+                        'exit_balance': balance,
+                        'profit_loss': profit_loss,
+                        'trade_closed': True
+                    })
+
+                # Likit olma kontrolü (mevcut mumda)
+                elif (entry_price - df['low'].iloc[i]) * leverage >= entry_balance * 0.9:
+                    exit_price = df['low'].iloc[i]
+                    profit_loss = (exit_price - entry_price) * leverage
+                    balance = 0
+                    unsuccessful_trades += 1
+                    position = None
+                    transactions[-1].update({
+                        'exit_price': exit_price,
+                        'exit_time': df.index[i],
+                        'exit_balance': 0,
+                        'profit_loss': profit_loss,
+                        'trade_closed': True
+                    })
+                    break
+
+                # Take profit kontrolü (mevcut mumda)
+                elif take_profit_percentage > 0 and df['high'].iloc[i] >= entry_price * (1 + take_profit_percentage/100):
+                    exit_price = entry_price * (1 + take_profit_percentage/100)
+                    profit_loss = (exit_price - entry_price) * leverage
+                    balance += profit_loss
+                    successful_trades += 1
+                    position = None
+                    transactions[-1].update({
+                        'exit_price': exit_price,
+                        'exit_time': df.index[i],
+                        'exit_balance': balance,
+                        'profit_loss': profit_loss,
+                        'trade_closed': True
+                    })
+
+                # Trend değişimi kontrolü (bir sonraki mumun açılışında)
+                elif df['close'].iloc[i] < supertrend[i] and df['close'].iloc[i-1] >= supertrend[i-1]:
+                    if i + 1 < len(df):
+                        # Mevcut LONG pozisyonunu kapat
+                        exit_price = df['open'].iloc[i + 1]  # Bir sonraki mumun açılışında çık
+                        profit_loss = (exit_price - entry_price) * leverage
+                        balance += profit_loss
+                        if profit_loss > 0:
                             successful_trades += 1
                         else:
                             unsuccessful_trades += 1
-                        trade_closed = True
+                        
+                        # İşlemi güncelle
                         transactions[-1].update({
                             'exit_price': exit_price,
-                            'exit_time': to_int_timestamp(df['timestamp'].iloc[j + 1]) if j + 1 < len(df) else to_int_timestamp(df['timestamp'].iloc[j]),
+                            'exit_time': df.index[i + 1],
                             'exit_balance': balance,
-                            'profit_loss': balance - entry_balance,
+                            'profit_loss': profit_loss,
                             'trade_closed': True
                         })
-                elif trade_direction == "SHORT":
-                    loss_pct = (current_high - entry_price) / entry_price * 100
-                    # Stop loss
-                    if loss_pct >= stop_loss_percentage and not stop_loss_percentage >= 90 / leverage:
-                        balance += balance * (-stop_loss_percentage / 100) * leverage
-                        unsuccessful_trades += 1
-                        trade_closed = True
-                        transactions[-1].update({
-                            'exit_price': entry_price * (1 + stop_loss_percentage / 100),
-                            'exit_time': to_int_timestamp(df['timestamp'].iloc[j]),
-                            'exit_balance': balance,
-                            'profit_loss': balance - entry_balance,
-                            'trade_closed': True
-                        })
-                    # Likit
-                    elif loss_pct >= 90 / leverage:
-                        balance = 0
-                        unsuccessful_trades += 1
-                        trade_closed = True
-                        transactions[-1].update({
-                            'exit_price': current_high,
-                            'exit_time': to_int_timestamp(df['timestamp'].iloc[j]),
-                            'exit_balance': 0,
-                            'profit_loss': -entry_balance,
-                            'trade_closed': True
-                        })
-                        break
-                    # Kar al
-                    profit_pct = (entry_price - current_low) / entry_price * 100
-                    if profit_pct >= take_profit_percentage:
-                        balance += balance * (take_profit_percentage / 100) * leverage
-                        successful_trades += 1
-                        trade_closed = True
-                        transactions[-1].update({
-                            'exit_price': entry_price * (1 - take_profit_percentage / 100),
-                            'exit_time': to_int_timestamp(df['timestamp'].iloc[j]),
-                            'exit_balance': balance,
-                            'profit_loss': balance - entry_balance,
-                            'trade_closed': True
-                        })
-                    # Sinyal ile çıkış - Long sinyali
-                    elif current_close_j > current_st_j and prev_close_j <= prev_st_j:
-                        exit_price = df['open'].iloc[j + 1] if j + 1 < len(df) else current_close_j
-                        profit_pct = (entry_price - exit_price) / entry_price * 100
-                        balance += balance * (profit_pct / 100) * leverage
-                        if profit_pct > 0:
+                        
+                        # Ters yönde yeni pozisyon aç (SHORT)
+                        if balance > 0:  # Bakiye kontrolü
+                            position = 'SHORT'
+                            entry_price = df['open'].iloc[i + 1]
+                            entry_balance = balance
+                            transactions.append({
+                                'trade_type': 'SHORT',
+                                'entry_price': entry_price,
+                                'entry_time': df.index[i + 1],
+                                'entry_balance': entry_balance,
+                                'trade_closed': False
+                            })
+                        else:
+                            position = None
+
+            # SHORT pozisyonu için
+            elif position == 'SHORT':
+                # Stop loss kontrolü (mevcut mumda)
+                if stop_loss_percentage > 0 and df['high'].iloc[i] >= entry_price * (1 + stop_loss_percentage/100):
+                    exit_price = entry_price * (1 + stop_loss_percentage/100)
+                    profit_loss = (entry_price - exit_price) * leverage
+                    balance += profit_loss
+                    unsuccessful_trades += 1
+                    position = None
+                    transactions[-1].update({
+                        'exit_price': exit_price,
+                        'exit_time': df.index[i],
+                        'exit_balance': balance,
+                        'profit_loss': profit_loss,
+                        'trade_closed': True
+                    })
+
+                # Likit olma kontrolü (mevcut mumda)
+                elif (df['high'].iloc[i] - entry_price) * leverage >= entry_balance * 0.9:
+                    exit_price = df['high'].iloc[i]
+                    profit_loss = (entry_price - exit_price) * leverage
+                    balance = 0
+                    unsuccessful_trades += 1
+                    position = None
+                    transactions[-1].update({
+                        'exit_price': exit_price,
+                        'exit_time': df.index[i],
+                        'exit_balance': 0,
+                        'profit_loss': profit_loss,
+                        'trade_closed': True
+                    })
+                    break
+
+                # Take profit kontrolü (mevcut mumda)
+                elif take_profit_percentage > 0 and df['low'].iloc[i] <= entry_price * (1 - take_profit_percentage/100):
+                    exit_price = entry_price * (1 - take_profit_percentage/100)
+                    profit_loss = (entry_price - exit_price) * leverage
+                    balance += profit_loss
+                    successful_trades += 1
+                    position = None
+                    transactions[-1].update({
+                        'exit_price': exit_price,
+                        'exit_time': df.index[i],
+                        'exit_balance': balance,
+                        'profit_loss': profit_loss,
+                        'trade_closed': True
+                    })
+
+                # Trend değişimi kontrolü (bir sonraki mumun açılışında)
+                elif df['close'].iloc[i] > supertrend[i] and df['close'].iloc[i-1] <= supertrend[i-1]:
+                    if i + 1 < len(df):
+                        # Mevcut SHORT pozisyonunu kapat
+                        exit_price = df['open'].iloc[i + 1]  # Bir sonraki mumun açılışında çık
+                        profit_loss = (entry_price - exit_price) * leverage
+                        balance += profit_loss
+                        if profit_loss > 0:
                             successful_trades += 1
                         else:
                             unsuccessful_trades += 1
-                        trade_closed = True
+                        
+                        # İşlemi güncelle
                         transactions[-1].update({
                             'exit_price': exit_price,
-                            'exit_time': to_int_timestamp(df['timestamp'].iloc[j + 1]) if j + 1 < len(df) else to_int_timestamp(df['timestamp'].iloc[j]),
+                            'exit_time': df.index[i + 1],
                             'exit_balance': balance,
-                            'profit_loss': balance - entry_balance,
+                            'profit_loss': profit_loss,
                             'trade_closed': True
                         })
-                j += 1
-            i = j if trade_closed else i + 1
+                        
+                        # Ters yönde yeni pozisyon aç (LONG)
+                        if balance > 0:  # Bakiye kontrolü
+                            position = 'LONG'
+                            entry_price = df['open'].iloc[i + 1]
+                            entry_balance = balance
+                            transactions.append({
+                                'trade_type': 'LONG',
+                                'entry_price': entry_price,
+                                'entry_time': df.index[i + 1],
+                                'entry_balance': entry_balance,
+                                'trade_closed': False
+                            })
+                        else:
+                            position = None
+
+        i += 1
+
+    # Son işlem hala açıksa kapat
+    if position is not None:
+        exit_price = df['close'].iloc[-1]
+        if position == 'LONG':
+            profit_loss = (exit_price - entry_price) * leverage
         else:
-            i += 1
+            profit_loss = (entry_price - exit_price) * leverage
+        balance += profit_loss
+        if profit_loss > 0:
+            successful_trades += 1
+        else:
+            unsuccessful_trades += 1
+        transactions[-1].update({
+            'exit_price': exit_price,
+            'exit_time': df.index[-1],
+            'exit_balance': balance,
+            'profit_loss': profit_loss,
+            'trade_closed': True
+        })
+
     total_trades = successful_trades + unsuccessful_trades
     success_rate = (successful_trades / total_trades * 100) if total_trades > 0 else 0
     profit_rate = ((balance / initial_balance) - 1) * 100
+
     return {
         'successful_trades': successful_trades,
         'unsuccessful_trades': unsuccessful_trades,
@@ -1039,100 +1098,6 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
         'trade_closed': balance <= 0,
         'transactions': transactions
     }
-
-
-def generate_backtest_transactions(conn):
-    """
-    Analysis results tablosundaki kayıtlara göre işlem geçmişini oluşturur
-    """
-    try:
-        cursor = conn.cursor()
-        
-        # Analysis results tablosundan tüm kayıtları al
-        cursor.execute("""
-        SELECT id, symbol, timeframe, leverage, stop_percentage, kar_al_percentage,
-               atr_period, atr_multiplier
-        FROM analysis_results
-        """)
-        analysis_records = cursor.fetchall()
-        
-        print(f"Toplam {len(analysis_records)} adet analiz sonucu için işlem geçmişi oluşturulacak.")
-        
-        for record in analysis_records:
-            analysis_id, symbol, timeframe, leverage, stop_loss, take_profit, atr_period, atr_multiplier = record
-            
-            print(f"\n{symbol} - {timeframe} için işlem geçmişi oluşturuluyor...")
-            print(f"Parametreler: Kaldıraç={leverage}, Stop={stop_loss}%, Kar Al={take_profit}%, ATR={atr_period}/{atr_multiplier}")
-            
-            # OHLCV verilerini al
-            cursor.execute("""
-            SELECT timestamp, open, high, low, close
-            FROM ohlcv_data
-            WHERE symbol = ? AND timeframe = ?
-            ORDER BY timestamp
-            """, (symbol, timeframe))
-            
-            ohlcv_data = cursor.fetchall()
-            
-            if not ohlcv_data:
-                print(f"Uyarı: {symbol} - {timeframe} için OHLCV verisi bulunamadı.")
-                continue
-            
-            print(f"OHLCV verisi yüklendi: {len(ohlcv_data)} satır")
-            
-            # DataFrame oluştur
-            df = pd.DataFrame(ohlcv_data, columns=['timestamp', 'open', 'high', 'low', 'close'])
-            # df.set_index('timestamp', inplace=True)  # Bu satırı kaldırdık, timestamp sütunu kaybolmasın!
-            
-            # Backtest yap
-            result = backtest_strategy(
-                df,
-                initial_balance=100,
-                leverage=leverage,
-                stop_loss_percentage=stop_loss,
-                take_profit_percentage=take_profit,
-                atr_period=atr_period,
-                atr_multiplier=atr_multiplier
-            )
-            
-            print(f"\nBacktest sonuçları:")
-            print(f"Başarılı işlemler: {result['successful_trades']}")
-            print(f"Başarısız işlemler: {result['unsuccessful_trades']}")
-            print(f"Toplam işlem: {result['successful_trades'] + result['unsuccessful_trades']}")
-            print(f"Başarı oranı: %{result['success_rate']:.2f}")
-            print(f"Final bakiye: {result['final_balance']:.2f}")
-            print(f"Kar/Zarar oranı: %{result['profit_rate']:.2f}")
-            
-            # İşlem geçmişini kaydet
-            for transaction in result['transactions']:
-                cursor.execute('''
-                INSERT INTO backtest_transactions (
-                    analysis_id, trade_type, entry_price, entry_time,
-                    entry_balance, exit_price, exit_time, exit_balance,
-                    profit_loss, trade_closed
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    analysis_id,
-                    transaction['trade_type'],
-                    transaction['entry_price'],
-                    transaction['entry_time'],
-                    transaction['entry_balance'],
-                    transaction.get('exit_price'),
-                    transaction.get('exit_time'),
-                    transaction.get('exit_balance'),
-                    transaction.get('profit_loss'),
-                    1 if transaction['trade_closed'] else 0
-                ))
-            
-            conn.commit()
-            print(f"{symbol} - {timeframe} için {len(result['transactions'])} adet işlem kaydedildi.")
-        
-        print("\nTüm işlem geçmişleri oluşturuldu ve kaydedildi.")
-        
-    except Exception as e:
-        print(f"İşlem geçmişi oluşturma hatası: {str(e)}")
-        traceback.print_exc()
-        conn.rollback()
 
 
 def main():
@@ -1175,6 +1140,89 @@ def main():
     except Exception as e:
         print(f"Ana program hatası: {str(e)}")
         traceback.print_exc()
+
+
+def generate_backtest_transactions(conn):
+    """
+    Analysis results tablosundaki kayıtlara göre işlem geçmişini oluşturur
+    """
+    try:
+        cursor = conn.cursor()
+        
+        # Analysis results tablosundan tüm kayıtları al
+        cursor.execute("""
+        SELECT id, symbol, timeframe, leverage, stop_percentage, kar_al_percentage,
+               atr_period, atr_multiplier
+        FROM analysis_results
+        """)
+        analysis_records = cursor.fetchall()
+        
+        print(f"Toplam {len(analysis_records)} adet analiz sonucu için işlem geçmişi oluşturulacak.")
+        
+        for record in analysis_records:
+            analysis_id, symbol, timeframe, leverage, stop_loss, take_profit, atr_period, atr_multiplier = record
+            
+            print(f"\n{symbol} - {timeframe} için işlem geçmişi oluşturuluyor...")
+            
+            # OHLCV verilerini al
+            cursor.execute("""
+            SELECT timestamp, open, high, low, close
+            FROM ohlcv_data
+            WHERE symbol = ? AND timeframe = ?
+            ORDER BY timestamp
+            """, (symbol, timeframe))
+            
+            ohlcv_data = cursor.fetchall()
+            
+            if not ohlcv_data:
+                print(f"Uyarı: {symbol} - {timeframe} için OHLCV verisi bulunamadı.")
+                continue
+            
+            # DataFrame oluştur
+            df = pd.DataFrame(ohlcv_data, columns=['timestamp', 'open', 'high', 'low', 'close'])
+            df.set_index('timestamp', inplace=True)
+            
+            # Backtest yap
+            result = backtest_strategy(
+                df,
+                initial_balance=100,
+                leverage=leverage,
+                stop_loss_percentage=stop_loss,
+                take_profit_percentage=take_profit,
+                atr_period=atr_period,
+                atr_multiplier=atr_multiplier
+            )
+            
+            # İşlem geçmişini kaydet
+            for transaction in result['transactions']:
+                cursor.execute('''
+                INSERT INTO backtest_transactions (
+                    analysis_id, trade_type, entry_price, entry_time,
+                    entry_balance, exit_price, exit_time, exit_balance,
+                    profit_loss, trade_closed
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    analysis_id,
+                    transaction['trade_type'],
+                    transaction['entry_price'],
+                    transaction['entry_time'],
+                    transaction['entry_balance'],
+                    transaction.get('exit_price'),
+                    transaction.get('exit_time'),
+                    transaction.get('exit_balance'),
+                    transaction.get('profit_loss'),
+                    1 if transaction['trade_closed'] else 0
+                ))
+            
+            conn.commit()
+            print(f"{symbol} - {timeframe} için işlem geçmişi kaydedildi.")
+        
+        print("\nTüm işlem geçmişleri oluşturuldu ve kaydedildi.")
+        
+    except Exception as e:
+        print(f"İşlem geçmişi oluşturma hatası: {str(e)}")
+        traceback.print_exc()
+        conn.rollback()
 
 
 def fetch_data_from_api(conn):
@@ -1314,6 +1362,7 @@ def analyze_symbol(symbol, dataframes):
                     print(f"\n{tf} - {metric.upper()} OPTİMİZASYONU:")
                     print(f"  Kaldıraç: {result['leverage']}, Stop: {result['stop_percentage']}%, "
                           f"Kar Al: {result['kar_al_percentage']}%")
+                    print(f"  ATR: {result['atr_period']}/{result['atr_multiplier']}")
                     print(f"  Başarılı: {result['successful_trades']}, Başarısız: {result['unsuccessful_trades']}")
                     print(f"  Son Bakiye: {result['final_balance']:.2f}, Başarı Oranı: %{result['success_rate']:.2f}")
 
