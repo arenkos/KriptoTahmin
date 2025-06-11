@@ -679,10 +679,8 @@ def transaction_history(symbol, timeframe):
             transactions = []
             for t in transactions_data:
                 try:
-                    # Timestamp'i kontrol et (milisaniye mi, saniye mi?)
                     entry_timestamp = int(t[2]) if t[2] else None
                     exit_timestamp = int(t[5]) if t[5] else None
-                    # Milisaniye/saniye ayrımı: 10 haneli ise saniye, 13 haneli ise milisaniye
                     def ts_to_dt(ts):
                         if not ts:
                             return None

@@ -5,14 +5,22 @@
     <h2>İşlem Geçmişi</h2>
     <div class="card">
         <div class="card-body">
-            <div class="row mb-3">
-                <div class="col">
-                    <h5>İşlem Detayları</h5>
-                    <p><strong>Sembol:</strong> {{ symbol }}</p>
-                    <p><strong>Zaman Dilimi:</strong> {{ timeframe }}</p>
+            <!-- İşlem Detayları: YAN YANA -->
+            <div class="row mb-3 align-items-center">
+                <div class="col-auto"><strong>Sembol:</strong> {{ symbol }}</div>
+                <div class="col-auto"><strong>Zaman Dilimi:</strong> {{ timeframe }}</div>
+                {% if analysis_params %}
+                <div class="col-auto"><strong>Kaldıraç:</strong> {{ analysis_params.leverage }}x</div>
+                <div class="col-auto"><strong>Stop Yüzdesi:</strong> %{{ analysis_params.stop_percentage }}</div>
+                <div class="col-auto"><strong>Kar Al Yüzdesi:</strong> %{{ analysis_params.kar_al_percentage }}</div>
+                <div class="col-auto"><strong>ATR Periyodu:</strong> {{ analysis_params.atr_period }}</div>
+                <div class="col-auto"><strong>ATR Çarpanı:</strong> {{ analysis_params.atr_multiplier }}</div>
+                <div class="col-auto">
+                    <a href="{{ url_for('main.apply_settings', symbol=symbol, timeframe=timeframe, leverage=analysis_params.leverage, stop_percentage=analysis_params.stop_percentage, kar_al_percentage=analysis_params.kar_al_percentage, atr_period=analysis_params.atr_period, atr_multiplier=analysis_params.atr_multiplier) }}" class="btn btn-primary btn-sm">Bu Ayarları Kullan</a>
                 </div>
+                {% endif %}
             </div>
-            
+
             <div class="table-responsive">
                 <table class="table table-striped">
                     <thead>
@@ -29,39 +37,53 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for transaction in transactions.items %}
-                        <tr>
-                            <td>
-                                {% if transaction.trade_type == 'LONG' %}
-                                <span class="badge bg-success">LONG</span>
-                                {% else %}
-                                <span class="badge bg-danger">SHORT</span>
-                                {% endif %}
-                            </td>
-                            <td>{{ transaction.entry_time.strftime('%Y-%m-%d %H:%M:%S') if transaction.entry_time else '-' }}</td>
-                            <td>{{ "%.4f"|format(transaction.entry_price) if transaction.entry_price else '-' }}</td>
-                            <td>{{ "%.2f"|format(transaction.entry_balance) if transaction.entry_balance else '-' }} USDT</td>
-                            <td>{{ transaction.exit_time.strftime('%Y-%m-%d %H:%M:%S') if transaction.exit_time else '-' }}</td>
-                            <td>{{ "%.4f"|format(transaction.exit_price) if transaction.exit_price else '-' }}</td>
-                            <td>{{ "%.2f"|format(transaction.exit_balance) if transaction.exit_balance else '-' }} USDT</td>
-                            <td>
-                                {% if transaction.profit_loss is not none %}
-                                <span class="{% if transaction.profit_loss > 0 %}text-success{% else %}text-danger{% endif %}">
-                                    {{ "%.2f"|format(transaction.profit_loss) }} USDT
-                                </span>
-                                {% else %}
-                                -
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if transaction.trade_closed %}
-                                <span class="badge bg-secondary">Kapalı</span>
-                                {% else %}
-                                <span class="badge bg-primary">Açık</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
+                        {% if transactions.items %}
+                            {% for transaction in transactions.items %}
+                            <tr>
+                                <td>
+                                    {% if transaction.trade_type == 'LONG' %}
+                                    <span class="badge bg-success">LONG</span>
+                                    {% else %}
+                                    <span class="badge bg-danger">SHORT</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if transaction.entry_time %}
+                                        {{ transaction.entry_time.strftime('%Y-%m-%d %H:%M:%S') if transaction.entry_time.__class__.__name__ == 'datetime' else transaction.entry_time }}
+                                    {% else %}-{% endif %}
+                                </td>
+                                <td>{{ "%.4f"|format(transaction.entry_price) if transaction.entry_price else '-' }}</td>
+                                <td>{{ "%.2f"|format(transaction.entry_balance) if transaction.entry_balance else '-' }} USDT</td>
+                                <td>
+                                    {% if transaction.exit_time %}
+                                        {{ transaction.exit_time.strftime('%Y-%m-%d %H:%M:%S') if transaction.exit_time.__class__.__name__ == 'datetime' else transaction.exit_time }}
+                                    {% else %}-{% endif %}
+                                </td>
+                                <td>{{ "%.4f"|format(transaction.exit_price) if transaction.exit_price else '-' }}</td>
+                                <td>{{ "%.2f"|format(transaction.exit_balance) if transaction.exit_balance else '-' }} USDT</td>
+                                <td>
+                                    {% if transaction.profit_loss is not none %}
+                                    <span class="{% if transaction.profit_loss > 0 %}text-success{% else %}text-danger{% endif %}">
+                                        {{ "%.2f"|format(transaction.profit_loss) }} USDT
+                                    </span>
+                                    {% else %}
+                                    -
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if transaction.trade_closed %}
+                                    <span class="badge bg-secondary">Kapalı</span>
+                                    {% else %}
+                                    <span class="badge bg-primary">Açık</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="9" class="text-center text-muted">Herhangi bir işlem bulunamadı.</td>
+                            </tr>
+                        {% endif %}
                     </tbody>
                 </table>
             </div>

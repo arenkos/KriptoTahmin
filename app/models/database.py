@@ -32,6 +32,8 @@ class TradingSettings(db.Model):
     leverage = db.Column(db.Float, nullable=False)
     stop_loss = db.Column(db.Float, nullable=False)
     take_profit = db.Column(db.Float, nullable=False)
+    atr_period = db.Column(db.Integer, nullable=False)  # ATR periyodu alanı eklendi
+    atr_multiplier = db.Column(db.Float, nullable=False)  # ATR çarpanı alanı eklendi
     binance_active = db.Column(db.Boolean, default=False)
     telegram_active = db.Column(db.Boolean, default=False)
     api_key = db.Column(db.String(128))  # Her ayar için ayrı API key

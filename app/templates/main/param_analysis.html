@@ -91,7 +91,7 @@
                                 </span>
                             </td>
                             <td>
-                                <a href="{{ url_for('main.transaction_history', symbol=result.symbol, timeframe=result.timeframe) }}" class="btn btn-sm btn-info">İşlem Geçmişi</a>
+                                <a href="{{ url_for('main.apply_settings', symbol=result.symbol, timeframe=result.timeframe, leverage=result.leverage, stop_percentage=result.stop_percentage, kar_al_percentage=result.kar_al_percentage, atr_period=result.atr_period, atr_multiplier=result.atr_multiplier) }}" class="btn btn-sm btn-primary">Bu Ayarları Kullan</a>
                             </td>
                         </tr>
                         {% endfor %}
