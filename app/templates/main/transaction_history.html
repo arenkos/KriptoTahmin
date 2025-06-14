@@ -5,6 +5,107 @@
     <h2>İşlem Geçmişi</h2>
     <div class="card">
         <div class="card-body">
+            <!-- FİLTRE FORMU -->
+            <form method="get" class="row g-3 mb-4 align-items-end">
+                <div class="col-md-3">
+                    <label for="start_date" class="form-label">Başlangıç Tarihi</label>
+                    <input type="date" class="form-control" id="start_date" name="start_date" value="{{ filters.start_date or '' }}">
+                </div>
+                <div class="col-md-3">
+                    <label for="end_date" class="form-label">Bitiş Tarihi</label>
+                    <input type="date" class="form-control" id="end_date" name="end_date" value="{{ filters.end_date or '' }}">
+                </div>
+                <div class="col-md-2">
+                    <label for="trade_type" class="form-label">İşlem Türü</label>
+                    <select class="form-select" id="trade_type" name="trade_type">
+                        <option value="" {% if not filters.trade_type %}selected{% endif %}>Tümü</option>
+                        <option value="LONG" {% if filters.trade_type == 'LONG' %}selected{% endif %}>LONG</option>
+                        <option value="SHORT" {% if filters.trade_type == 'SHORT' %}selected{% endif %}>SHORT</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label for="success" class="form-label">Başarı Durumu</label>
+                    <select class="form-select" id="success" name="success">
+                        <option value="" {% if not filters.success %}selected{% endif %}>Tümü</option>
+                        <option value="1" {% if filters.success == '1' %}selected{% endif %}>Başarılı</option>
+                        <option value="0" {% if filters.success == '0' %}selected{% endif %}>Başarısız</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">Filtrele</button>
+                </div>
+            </form>
+
+            <!-- ÖZET/İSTATİSTİK KUTULARI -->
+            {% if stats %}
+            <div class="row mb-4 g-3">
+                <div class="col-md-2 col-6">
+                    <div class="card text-center">
+                        <div class="card-body p-2">
+                            <div class="fw-bold">Toplam İşlem</div>
+                            <div>{{ stats.total }}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-6">
+                    <div class="card text-center">
+                        <div class="card-body p-2">
+                            <div class="fw-bold">LONG</div>
+                            <div>{{ stats.long }} <span class="text-success">(%{{ '%.1f'|format(stats.long_success_pct) }})</span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-6">
+                    <div class="card text-center">
+                        <div class="card-body p-2">
+                            <div class="fw-bold">SHORT</div>
+                            <div>{{ stats.short }} <span class="text-success">(%{{ '%.1f'|format(stats.short_success_pct) }})</span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-6">
+                    <div class="card text-center">
+                        <div class="card-body p-2">
+                            <div class="fw-bold">Başarı Oranı</div>
+                            <div>%{{ '%.1f'|format(stats.total_success_pct) }}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-6">
+                    <div class="card text-center">
+                        <div class="card-body p-2">
+                            <div class="fw-bold">Toplam Kar</div>
+                            <div class="text-success">{{ '%.2f'|format(stats.total_profit) }} USDT</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-6">
+                    <div class="card text-center">
+                        <div class="card-body p-2">
+                            <div class="fw-bold">Toplam Zarar</div>
+                            <div class="text-danger">{{ '%.2f'|format(stats.total_loss) }} USDT</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-6">
+                    <div class="card text-center">
+                        <div class="card-body p-2">
+                            <div class="fw-bold">En Büyük Kar</div>
+                            <div class="text-success">{{ '%.2f'|format(stats.max_profit) }} USDT</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2 col-6">
+                    <div class="card text-center">
+                        <div class="card-body p-2">
+                            <div class="fw-bold">En Büyük Zarar</div>
+                            <div class="text-danger">{{ '%.2f'|format(stats.min_profit) }} USDT</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
             <!-- İşlem Detayları: YAN YANA -->
             <div class="row mb-3 align-items-center">
                 <div class="col-auto"><strong>Sembol:</strong> {{ symbol }}</div>
@@ -21,6 +122,7 @@
                 {% endif %}
             </div>
 
+            <!-- TABLO -->
             <div class="table-responsive">
                 <table class="table table-striped">
                     <thead>
@@ -94,7 +196,7 @@
                 <ul class="pagination justify-content-center">
                     <!-- Önceki sayfa -->
                     <li class="page-item {% if not transactions.has_prev %}disabled{% endif %}">
-                        <a class="page-link" href="{{ url_for('main.transaction_history', symbol=symbol, timeframe=timeframe, page=transactions.prev_num) if transactions.has_prev else '#' }}">
+                        <a class="page-link" href="{{ url_for('main.transaction_history', symbol=symbol, timeframe=timeframe, page=transactions.prev_num, start_date=filters.start_date, end_date=filters.end_date, trade_type=filters.trade_type, success=filters.success) if transactions.has_prev else '#' }}">
                             &laquo;
                         </a>
                     </li>
@@ -103,7 +205,7 @@
                     {% for page_num in transactions.iter_pages(left_edge=2, left_current=2, right_current=3, right_edge=2) %}
                         {% if page_num %}
                             <li class="page-item {% if page_num == transactions.page %}active{% endif %}">
-                                <a class="page-link" href="{{ url_for('main.transaction_history', symbol=symbol, timeframe=timeframe, page=page_num) }}">
+                                <a class="page-link" href="{{ url_for('main.transaction_history', symbol=symbol, timeframe=timeframe, page=page_num, start_date=filters.start_date, end_date=filters.end_date, trade_type=filters.trade_type, success=filters.success) }}">
                                     {{ page_num }}
                                 </a>
                             </li>
@@ -116,7 +218,7 @@
 
                     <!-- Sonraki sayfa -->
                     <li class="page-item {% if not transactions.has_next %}disabled{% endif %}">
-                        <a class="page-link" href="{{ url_for('main.transaction_history', symbol=symbol, timeframe=timeframe, page=transactions.next_num) if transactions.has_next else '#' }}">
+                        <a class="page-link" href="{{ url_for('main.transaction_history', symbol=symbol, timeframe=timeframe, page=transactions.next_num, start_date=filters.start_date, end_date=filters.end_date, trade_type=filters.trade_type, success=filters.success) if transactions.has_next else '#' }}">
                             &raquo;
                         </a>
                     </li>
