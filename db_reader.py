@@ -41,7 +41,7 @@ def read_veriler():
     query = """
     SELECT *, datetime(timestamp / 1000, 'unixepoch') AS human_readable_time
     FROM ohlcv_data
-    WHERE symbol LIKE '%BTC%' AND timeframe = '1m' ORDER BY timestamp DESC LIMIT 1;
+    WHERE symbol LIKE '%BTC%' AND timeframe = '1m' ORDER BY timestamp DESC LIMIT 15;
     """
     df = pd.read_sql_query(query, conn)
     conn.close()
@@ -52,9 +52,7 @@ def read_veriler():
     cursor = conn.cursor()
 
     query = """
-        UPDATE ohlcv_data
-        SET symbol = symbol || '/USDT'
-        WHERE symbol NOT LIKE '%/USDT%';
+        DELETE FROM ohlcv_data WHERE timestamp = 1750192560000
     """
 
     cursor.execute(query)

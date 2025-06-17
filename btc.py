@@ -11,6 +11,7 @@ from app.models.database import TradingSettings
 from app.extensions import db
 from config import Config
 import struct
+from websocket import WebSocketManager
 
 # --- Ayarlar ---
 LOCAL_DB_PATH = 'crypto_data.db'
@@ -540,28 +541,28 @@ def run_simulation(df_ohlcv):
         # Stratejiyi çalıştır
         run_strategy_and_save(df_ohlcv, USER_EMAIL, 'BTC/USDT')
 
+def on_new_data(kline_data):
+    print(f"Yeni veri geldi: {kline_data['symbol']} - {kline_data['close']} - {datetime.fromtimestamp(kline_data['timestamp'] / 1000)}")
+    # Son 200 mumu çek
+    df_current_ohlcv = get_ohlcv_1m(limit=200)
+    if df_current_ohlcv.empty or len(df_current_ohlcv) < ATR_PERIOD + 1:
+        print(f"Yeterli OHLCV verisi yok (şu an {len(df_current_ohlcv)} mum var), bekleniyor...")
+        return
+    run_strategy_and_save(df_current_ohlcv, USER_EMAIL, SYMBOL)
+
 
 # --- Ana Akış ---
 if __name__ == "__main__":
     create_appdb_table()
-    print("Program başlatılıyor ve başlangıç verileri çekiliyor...")
+    print("Başlangıçta eksik veriler tamamlanıyor...")
+    fetch_and_save_ohlcv(SYMBOL, TIMEFRAME)  # Sadece bir kere, eksik verileri tamamlamak için
 
-    # Başlangıçta ana sembol için mevcut verileri çek ve kaydet
-    fetch_and_save_ohlcv(SYMBOL, TIMEFRAME)
-
-    print("Başlangıç verisi tamamlandı. Simülasyon döngüsü başlıyor...")
-    while True:
-        # Her 1 dakikada bir yeni verileri çek ve kaydet
-        fetch_and_save_ohlcv(SYMBOL, TIMEFRAME)
-
-        # Stratejinin çalışması için güncel OHLCV verilerini al
-        df_current_ohlcv = get_ohlcv_1m(limit=200)
-
-        if df_current_ohlcv.empty or len(df_current_ohlcv) < ATR_PERIOD + 1:
-            print(f"Yeterli OHLCV verisi yok (şu an {len(df_current_ohlcv)} mum var), bekleniyor...")
-            time.sleep(60)
-            continue
-
-        run_simulation(df_current_ohlcv)
-        print(f"Yeni veri işlendi. Son zaman: {datetime.fromtimestamp(df_current_ohlcv['timestamp'].iloc[-1] / 1000)}")
-        time.sleep(60)
+    print("WebSocket ile anlık veri dinleniyor ve strateji tetiklenecek...")
+    ws_manager = WebSocketManager()
+    ws_manager.start('btcusdt', on_new_data)
+    try:
+        while True:
+            time.sleep(10)
+    except KeyboardInterrupt:
+        print("Durduruluyor...")
+        ws_manager.stop()
