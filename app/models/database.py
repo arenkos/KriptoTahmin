@@ -41,6 +41,7 @@ class TradingSettings(db.Model):
     balance = db.Column(db.Float, default=0.0)  # Her ayar için ayrı bakiye
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_active = db.Column(db.Boolean, default=True)
 
 class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)

@@ -64,7 +64,9 @@ def dashboard():
     
     return render_template('main/dashboard.html',
                          settings=settings,
-                         transactions=transactions)
+                         transactions=transactions,
+                         filters={},
+                         stats={})
 
 @bp.route('/settings', methods=['GET', 'POST'])
 @login_required
@@ -138,19 +140,20 @@ def settings():
             last_settings = TradingSettings.query.filter_by(
                 user_id=current_user.id
             ).order_by(TradingSettings.updated_at.desc()).first()
-            if last_settings:
-                form.symbol.data = last_settings.symbol
-                form.timeframe.data = last_settings.timeframe
-                form.leverage.data = last_settings.leverage
-                form.stop_loss.data = last_settings.stop_loss
-                form.take_profit.data = last_settings.take_profit
-                form.atr_period.data = last_settings.atr_period
-                form.atr_multiplier.data = last_settings.atr_multiplier
-                form.api_key.data = last_settings.api_key
-                form.api_secret.data = last_settings.api_secret
-                form.balance.data = last_settings.balance
+                
+        if last_settings:
+            form.symbol.data = last_settings.symbol
+            form.timeframe.data = last_settings.timeframe
+            form.leverage.data = last_settings.leverage
+            form.stop_loss.data = last_settings.stop_loss
+            form.take_profit.data = last_settings.take_profit
+            form.atr_period.data = last_settings.atr_period
+            form.atr_multiplier.data = last_settings.atr_multiplier
+            form.api_key.data = last_settings.api_key
+            form.api_secret.data = last_settings.api_secret
+            form.balance.data = last_settings.balance
 
-    return render_template('main/settings.html', form=form, editing_settings=editing_settings)
+        return render_template('main/settings.html', form=form, editing_settings=editing_settings)
 
 @bp.route('/analyze/<symbol>/<timeframe>')
 @login_required
@@ -552,7 +555,7 @@ def param_analysis():
         
         # Verileri sorgula
         cursor.execute('''
-        SELECT * FROM analysis_results ORDER BY final_balance DESC
+        SELECT * FROM analysis_results WHERE final_balance >= 100 ORDER BY final_balance DESC
         ''')
         
         results = cursor.fetchall()
@@ -616,15 +619,15 @@ def apply_settings():
 
     # Yeni trading ayarı oluştur
     new_settings = TradingSettings(
-        user_id=current_user.id,
-        symbol=symbol,
-        timeframe=timeframe,
-        leverage=leverage,
-        stop_loss=stop_percentage,
-        take_profit=kar_al_percentage,
+            user_id=current_user.id,
+            symbol=symbol,
+            timeframe=timeframe,
+            leverage=leverage,
+            stop_loss=stop_percentage,
+            take_profit=kar_al_percentage,
         atr_period=atr_period,
         atr_multiplier=atr_multiplier
-    )
+        )
     
     db.session.add(new_settings)
     db.session.commit()
@@ -736,7 +739,7 @@ def transaction_history(symbol, timeframe):
                         'exit_price': t[4],
                         'exit_time': ts_to_dt(exit_timestamp),
                         'exit_balance': t[6],
-                        'profit_loss': t[7],
+                        'profit_loss': t[7] if t[7] is not None else 0,
                         'trade_closed': bool(t[8])
                     }
                     transactions.append(transaction)
@@ -747,8 +750,8 @@ def transaction_history(symbol, timeframe):
             # İstatistikleri hesapla
             total_long = sum(1 for x in all_data if x[0] == 'LONG')
             total_short = sum(1 for x in all_data if x[0] == 'SHORT')
-            long_success = sum(1 for x in all_data if x[0] == 'LONG' and x[1] > 0)
-            short_success = sum(1 for x in all_data if x[0] == 'SHORT' and x[1] > 0)
+            long_success = sum(1 for x in all_data if x[0] == 'LONG' and x[1] is not None and x[1] > 0)
+            short_success = sum(1 for x in all_data if x[0] == 'SHORT' and x[1] is not None and x[1] > 0)
             long_fail = total_long - long_success
             short_fail = total_short - short_success
             total_success = long_success + short_success
@@ -821,4 +824,198 @@ def transaction_history(symbol, timeframe):
         print(f"İşlem geçmişi yüklenirken hata: {str(e)}")
         traceback.print_exc()
         flash('İşlem geçmişi yüklenirken bir hata oluştu. Lütfen daha sonra tekrar deneyin.', 'error')
-        return redirect(url_for('main.dashboard')) 
+        return redirect(url_for('main.dashboard'))
+
+@bp.route('/realtime_transaction_history')
+@login_required
+def realtime_transaction_history():
+    # Sadece ilgili kullanıcıya göster
+    user_email = current_user.email
+    if user_email != 'aren_32@hotmail.com':
+        flash('Bu sayfaya erişim izniniz yok.', 'danger')
+        return redirect(url_for('main.dashboard'))
+
+    # Filtre parametreleri
+    page = request.args.get('page', 1, type=int)
+    per_page = 10
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    trade_type = request.args.get('trade_type')
+    success = request.args.get('success')
+
+    conn = sqlite3.connect('app.db')
+    cursor = conn.cursor()
+
+    where_clauses = ["user_email = ?"]
+    params = [user_email]
+    if trade_type in ('LONG', 'SHORT'):
+        where_clauses.append("trade_type = ?")
+        params.append(trade_type)
+    if success == '1':
+        where_clauses.append("profit_loss > 0")
+    elif success == '0':
+        where_clauses.append("profit_loss <= 0")
+    if start_date:
+        where_clauses.append("entry_time >= ?")
+        try:
+            start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp()) * 1000
+        except:
+            start_ts = 0
+        params.append(start_ts)
+    if end_date:
+        where_clauses.append("entry_time <= ?")
+        try:
+            end_ts = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp()) * 1000
+        except:
+            end_ts = 9999999999999
+        params.append(end_ts)
+    where_sql = " AND ".join(where_clauses)
+
+    # Toplam işlem sayısı
+    cursor.execute(f"SELECT COUNT(*) FROM realtime_transactions WHERE {where_sql}", params)
+    total = cursor.fetchone()[0]
+    offset = (page - 1) * per_page
+
+    # İşlemleri getir
+    cursor.execute(f"""
+        SELECT trade_type, entry_price, entry_time, entry_balance,
+               exit_price, exit_time, exit_balance, profit_loss, trade_closed
+        FROM realtime_transactions
+        WHERE {where_sql}
+        ORDER BY entry_time DESC
+        LIMIT ? OFFSET ?
+    """, params + [per_page, offset])
+    transactions_data = cursor.fetchall()
+
+    # Tüm filtreli işlemleri istatistik için çek
+    cursor.execute(f"SELECT trade_type, profit_loss, trade_closed FROM realtime_transactions WHERE {where_sql}", params)
+    all_data = cursor.fetchall()
+
+    # Verileri işle
+    transactions = []
+    for t in transactions_data:
+        try:
+            print(f"DEBUG: İşlem verisi (raw): {t}")
+            # entry_time ve exit_time'ı işlerken bytes tipi kontrolü ekle
+            entry_timestamp_raw = t[2]
+            exit_timestamp_raw = t[5]
+
+            entry_timestamp = None
+            if entry_timestamp_raw is not None:
+                if isinstance(entry_timestamp_raw, bytes):
+                    if len(entry_timestamp_raw) == 8: # Genellikle 8 bayt unsigned long long
+                        entry_timestamp = struct.unpack('<Q', entry_timestamp_raw)[0]
+                        print(f"DEBUG: entry_timestamp (bytes to int): {entry_timestamp}")
+                    else:
+                        print(f"Uyarı: Beklenmeyen bytes uzunluğu için entry_timestamp_raw: {entry_timestamp_raw}. Atlanıyor.")
+                else:
+                    entry_timestamp = int(entry_timestamp_raw)
+                    print(f"DEBUG: entry_timestamp (int directly): {entry_timestamp}")
+
+            exit_timestamp = None
+            if exit_timestamp_raw is not None:
+                if isinstance(exit_timestamp_raw, bytes):
+                    if len(exit_timestamp_raw) == 8:
+                        exit_timestamp = struct.unpack('<Q', exit_timestamp_raw)[0]
+                        print(f"DEBUG: exit_timestamp (bytes to int): {exit_timestamp}")
+                    else:
+                        print(f"Uyarı: Beklenmeyen bytes uzunluğu için exit_timestamp_raw: {exit_timestamp_raw}. Atlanıyor.")
+                else:
+                    exit_timestamp = int(exit_timestamp_raw)
+                    print(f"DEBUG: exit_timestamp (int directly): {exit_timestamp}")
+
+            def ts_to_dt(ts):
+                if ts is None:
+                    return None
+                # ts artık int olmalı, bytes dönüşümü yukarıda yapıldı
+                if len(str(ts)) > 10: # Milisaniye
+                    return datetime.fromtimestamp(ts / 1000)
+                else: # Saniye
+                    return datetime.fromtimestamp(ts)
+
+            transaction = {
+                'trade_type': t[0],
+                'entry_price': t[1],
+                'entry_time': ts_to_dt(entry_timestamp),
+                'entry_balance': t[3],
+                'exit_price': t[4],
+                'exit_time': ts_to_dt(exit_timestamp),
+                'exit_balance': t[6],
+                'profit_loss': t[7] if t[7] is not None else 0,
+                'trade_closed': bool(t[8])
+            }
+            transactions.append(transaction)
+            print(f"DEBUG: İşlem başarıyla eklendi: {transaction['trade_type']} @ {transaction['entry_time']}")
+        except Exception as e:
+            print(f"HATA: İşlem dönüştürme hatası (realtime_transaction_history): {str(e)}. İşlem atlanıyor.")
+            traceback.print_exc() # Hata ayıklama için tam traceback yazdır
+            continue
+
+    # İstatistikler
+    total_long = sum(1 for x in all_data if x[0] == 'LONG')
+    total_short = sum(1 for x in all_data if x[0] == 'SHORT')
+    long_success = sum(1 for x in all_data if x[0] == 'LONG' and x[1] is not None and x[1] > 0)
+    short_success = sum(1 for x in all_data if x[0] == 'SHORT' and x[1] is not None and x[1] > 0)
+    long_fail = total_long - long_success
+    short_fail = total_short - short_success
+    total_success = long_success + short_success
+    total_fail = long_fail + short_fail
+    total_count = total_long + total_short
+    total_profit = sum(x[1] for x in all_data if x[1] is not None and x[1] > 0)
+    total_loss = sum(x[1] for x in all_data if x[1] is not None and x[1] < 0)
+    max_profit = max([x[1] for x in all_data if x[1] is not None], default=0)
+    min_profit = min([x[1] for x in all_data if x[1] is not None], default=0)
+    stats = {
+        'total': total_count,
+        'long': total_long,
+        'short': total_short,
+        'long_success': long_success,
+        'short_success': short_success,
+        'long_fail': long_fail,
+        'short_fail': short_fail,
+        'long_success_pct': (long_success / total_long * 100) if total_long else 0,
+        'short_success_pct': (short_success / total_short * 100) if total_short else 0,
+        'total_success': total_success,
+        'total_fail': total_fail,
+        'total_success_pct': (total_success / total_count * 100) if total_count else 0,
+        'total_profit': total_profit,
+        'total_loss': total_loss,
+        'max_profit': max_profit,
+        'min_profit': min_profit
+    }
+
+    class Pagination:
+        def __init__(self, items, page, per_page, total):
+            self.items = items
+            self.page = page
+            self.per_page = per_page
+            self.total = total
+            self.pages = (total + per_page - 1) // per_page
+            self.has_prev = page > 1
+            self.has_next = page < self.pages
+            self.prev_num = page - 1
+            self.next_num = page + 1
+        def iter_pages(self, left_edge=2, left_current=2, right_current=3, right_edge=2):
+            last = 0
+            for num in range(1, self.pages + 1):
+                if (num <= left_edge or
+                    (num > self.page - left_current - 1 and
+                     num < self.page + right_current) or
+                    num > self.pages - right_edge + 1):
+                    if last + 1 != num:
+                        yield None
+                    yield num
+                    last = num
+
+    pagination = Pagination(transactions, page, per_page, total)
+    conn.close()
+
+    return render_template('main/realtime_transaction_history.html',
+                         transactions=pagination,
+                         stats=stats,
+                         filters={
+                             'start_date': start_date,
+                             'end_date': end_date,
+                             'trade_type': trade_type,
+                             'success': success
+                         }) 

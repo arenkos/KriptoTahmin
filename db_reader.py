@@ -5,13 +5,16 @@ def get_db_connection():
     conn = sqlite3.connect('crypto_data.db')
     return conn
 
+def get_db_connection2():
+    conn = sqlite3.connect('app.db')
+    return conn
 
 def read_analiz():
     conn = get_db_connection()
 
     query = """
-    SELECT *
-    FROM analysis_results;
+    SELECT DISTINCT *
+    FROM analysis_results WHERE final_balance>=100;
     """
 
     df = pd.read_sql_query(query, conn)
@@ -31,6 +34,56 @@ def read_islemler():
     conn.close()
 
     print(df)
+
+def read_veriler():
+    conn = get_db_connection()
+
+    query = """
+    SELECT *, datetime(timestamp / 1000, 'unixepoch') AS human_readable_time
+    FROM ohlcv_data
+    WHERE symbol LIKE '%BTC%' AND timeframe = '1m' ORDER BY timestamp DESC LIMIT 1;
+    """
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+
+    print(df)
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    query = """
+        UPDATE ohlcv_data
+        SET symbol = symbol || '/USDT'
+        WHERE symbol NOT LIKE '%/USDT%';
+    """
+
+    cursor.execute(query)
+    conn.commit()  # Değişiklikleri kaydet
+    conn.close()
+
+    print("Güncelleme tamamlandı.")
+
+def read_islem_gercek():
+    conn = get_db_connection2()
+    cursor = conn.cursor()
+    query = """
+            SELECT *,datetime(entry_time / 1000, 'unixepoch') AS enter_time FROM realtime_transactions;
+        """
+
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+
+    print(df)
+def delete_veriler_gercek():
+    conn = get_db_connection2()
+    cursor = conn.cursor()
+    query = """
+        DELETE FROM realtime_transactions;
+    """
+
+    cursor.execute(query)  # Sorguyu çalıştır
+    conn.commit()  # Silinen kayıtları kalıcı olarak uygula
+    conn.close()  # Bağlantıyı kapat
 
 def tablo_liste():
     # Veritabanına bağlan
@@ -138,12 +191,18 @@ if __name__ == "__main__":
         read_analiz()
     elif response.lower() == 'i':
         read_islemler()
+    elif response.lower() == 'v':
+        read_veriler()
+    elif response.lower() == 'r':
+        read_islem_gercek()
     #delete()
     response = input("\nAnaliz tablosunu temizlemek istiyor musunuz? (e/h): ")
     if response.lower() == 'ea':
         delete_analiz()
     elif response.lower() == 'ei':
         delete_islemler()
+    elif response.lower() == 'er':
+        delete_veriler_gercek()
     #response = input("\nTekrarlanan kayıtları temizlemek istiyor musunuz? (e/h): ")
     response = "."
     if response.lower() == 'e':

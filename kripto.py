@@ -573,7 +573,7 @@ def deneme(zamanAraligi, df, lim):
                                     transactions.append({
                                         'trade_type': 'LONG',
                                         'entry_price': entry_price,
-                                        'entry_time': df.index[i],
+                                        'entry_time': df['timestamp'].iloc[i],
                                         'entry_balance': entry_balance,
                                         'trade_closed': False
                                     })
@@ -586,7 +586,7 @@ def deneme(zamanAraligi, df, lim):
                                     transactions.append({
                                         'trade_type': 'SHORT',
                                         'entry_price': entry_price,
-                                        'entry_time': df.index[i],
+                                        'entry_time': df['timestamp'].iloc[i],
                                         'entry_balance': entry_balance,
                                         'trade_closed': False
                                     })
@@ -604,7 +604,7 @@ def deneme(zamanAraligi, df, lim):
                                         position = None
                                         transactions[-1].update({
                                             'exit_price': exit_price,
-                                            'exit_time': df.index[i],
+                                            'exit_time': df['timestamp'].iloc[i],
                                             'exit_balance': balance,
                                             'profit_loss': profit_loss,
                                             'trade_closed': True
@@ -619,7 +619,7 @@ def deneme(zamanAraligi, df, lim):
                                         position = None
                                         transactions[-1].update({
                                             'exit_price': exit_price,
-                                            'exit_time': df.index[i],
+                                            'exit_time': df['timestamp'].iloc[i],
                                             'exit_balance': 0,
                                             'profit_loss': profit_loss,
                                             'trade_closed': True
@@ -635,7 +635,7 @@ def deneme(zamanAraligi, df, lim):
                                         position = None
                                         transactions[-1].update({
                                             'exit_price': exit_price,
-                                            'exit_time': df.index[i],
+                                            'exit_time': df['timestamp'].iloc[i],
                                             'exit_balance': balance,
                                             'profit_loss': profit_loss,
                                             'trade_closed': True
@@ -656,7 +656,7 @@ def deneme(zamanAraligi, df, lim):
                                             # İşlemi güncelle
                                             transactions[-1].update({
                                                 'exit_price': exit_price,
-                                                'exit_time': df.index[i + 1],
+                                                'exit_time': df['timestamp'].iloc[i + 1],
                                                 'exit_balance': balance,
                                                 'profit_loss': profit_loss,
                                                 'trade_closed': True
@@ -670,7 +670,7 @@ def deneme(zamanAraligi, df, lim):
                                                 transactions.append({
                                                     'trade_type': 'SHORT',
                                                     'entry_price': entry_price,
-                                                    'entry_time': df.index[i + 1],
+                                                    'entry_time': df['timestamp'].iloc[i + 1],
                                                     'entry_balance': entry_balance,
                                                     'trade_closed': False
                                                 })
@@ -688,7 +688,7 @@ def deneme(zamanAraligi, df, lim):
                                         position = None
                                         transactions[-1].update({
                                             'exit_price': exit_price,
-                                            'exit_time': df.index[i],
+                                            'exit_time': df['timestamp'].iloc[i],
                                             'exit_balance': balance,
                                             'profit_loss': profit_loss,
                                             'trade_closed': True
@@ -703,7 +703,7 @@ def deneme(zamanAraligi, df, lim):
                                         position = None
                                         transactions[-1].update({
                                             'exit_price': exit_price,
-                                            'exit_time': df.index[i],
+                                            'exit_time': df['timestamp'].iloc[i],
                                             'exit_balance': 0,
                                             'profit_loss': profit_loss,
                                             'trade_closed': True
@@ -719,7 +719,7 @@ def deneme(zamanAraligi, df, lim):
                                         position = None
                                         transactions[-1].update({
                                             'exit_price': exit_price,
-                                            'exit_time': df.index[i],
+                                            'exit_time': df['timestamp'].iloc[i],
                                             'exit_balance': balance,
                                             'profit_loss': profit_loss,
                                             'trade_closed': True
@@ -740,7 +740,7 @@ def deneme(zamanAraligi, df, lim):
                                             # İşlemi güncelle
                                             transactions[-1].update({
                                                 'exit_price': exit_price,
-                                                'exit_time': df.index[i + 1],
+                                                'exit_time': df['timestamp'].iloc[i + 1],
                                                 'exit_balance': balance,
                                                 'profit_loss': profit_loss,
                                                 'trade_closed': True
@@ -754,7 +754,7 @@ def deneme(zamanAraligi, df, lim):
                                                 transactions.append({
                                                     'trade_type': 'LONG',
                                                     'entry_price': entry_price,
-                                                    'entry_time': df.index[i + 1],
+                                                    'entry_time': df['timestamp'].iloc[i + 1],
                                                     'entry_balance': entry_balance,
                                                     'trade_closed': False
                                                 })
@@ -777,7 +777,7 @@ def deneme(zamanAraligi, df, lim):
                                 unsuccessful_trades += 1
                             transactions[-1].update({
                                 'exit_price': exit_price,
-                                'exit_time': df.index[-1],
+                                'exit_time': df['timestamp'].iloc[-1],
                                 'exit_balance': balance,
                                 'profit_loss': profit_loss,
                                 'trade_closed': True
@@ -1063,14 +1063,15 @@ def generate_backtest_transactions(conn):
             
             print(f"\n{symbol} - {timeframe} için işlem geçmişi oluşturuluyor...")
             print(f"Parametreler: Kaldıraç={leverage}, Stop={stop_loss}%, Kar Al={take_profit}%, ATR={atr_period}/{atr_multiplier}")
-            
-            # OHLCV verilerini al
+
+            symbol_filter = f"%{symbol}%"
+
             cursor.execute("""
-            SELECT timestamp, open, high, low, close
-            FROM ohlcv_data
-            WHERE symbol = ? AND timeframe = ?
-            ORDER BY timestamp
-            """, (symbol, timeframe))
+                SELECT timestamp, open, high, low, close
+                FROM ohlcv_data
+                WHERE symbol LIKE ? AND timeframe = ?
+                ORDER BY timestamp
+            """, (symbol_filter, timeframe))
             
             ohlcv_data = cursor.fetchall()
             
@@ -1265,7 +1266,7 @@ def analyze_symbol(symbol, dataframes):
                 # DataFrame'i düzenle
                 df = df.copy()
                 df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-                df.set_index('timestamp', inplace=True)
+                # df.set_index('timestamp', inplace=True)
                 
                 # Veri tiplerini kontrol et
                 df['open'] = pd.to_numeric(df['open'], errors='coerce')
