@@ -6,7 +6,7 @@ import struct
 from datetime import datetime
 import ta
 import math
-import sqlite3
+import mysql.connector
 import requests
 import os
 import argparse
@@ -64,64 +64,20 @@ def upload_db():
 
 
 # Veritabanı bağlantısı oluşturma
-def create_db_connection():
-    conn = sqlite3.connect(LOCAL_DB_PATH)
-    cursor = conn.cursor()
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS ohlcv_data (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        symbol TEXT,
-        timestamp INTEGER,
-        timeframe TEXT,
-        open REAL,
-        high REAL,
-        low REAL,
-        close REAL,
-        volume REAL
-    )
-    ''')
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS analysis_results (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        symbol TEXT NOT NULL,
-        timeframe TEXT NOT NULL,
-        leverage REAL NOT NULL,
-        stop_percentage REAL NOT NULL,
-        kar_al_percentage REAL NOT NULL,
-        atr_period INTEGER NOT NULL,
-        atr_multiplier REAL NOT NULL,
-        successful_trades INTEGER NOT NULL,
-        unsuccessful_trades INTEGER NOT NULL,
-        final_balance REAL NOT NULL,
-        success_rate REAL NOT NULL,
-        optimization_type TEXT NOT NULL,  -- 'balance' veya 'success_rate'
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(symbol, timeframe, optimization_type)
-    )
-    ''')
-
-    # İşlem geçmişi için yeni tablo
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS backtest_transactions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        analysis_id INTEGER NOT NULL,
-        trade_type TEXT NOT NULL,
-        entry_price REAL NOT NULL,
-        entry_time INTEGER NOT NULL,
-        entry_balance REAL NOT NULL,
-        exit_price REAL,
-        exit_time INTEGER,
-        exit_balance REAL,
-        profit_loss REAL,
-        trade_closed INTEGER NOT NULL,
-        FOREIGN KEY (analysis_id) REFERENCES analysis_results(id)
-    )
-    ''')
-
-    conn.commit()
-    return conn
+def get_mysql_connection():
+    try:
+        return mysql.connector.connect(
+            host="193.203.168.175",
+            user="u162605596_kripto2",
+            password="Arenkos1.",
+            database="u162605596_kripto2",
+            connection_timeout=60,
+            autocommit=True,
+            buffered=True
+        )
+    except mysql.connector.Error as err:
+        print(f"MySQL bağlantı hatası: {err}")
+        return None
 
 
 # Veritabanına veri ekleme fonksiyonu
@@ -156,7 +112,7 @@ def save_results_to_db(symbol, timeframe, leverage, stop_percentage, kar_al_perc
             print(f"ERROR: Veritabanı dosyası bulunamadı: {LOCAL_DB_PATH}")
             return
 
-        conn = sqlite3.connect(LOCAL_DB_PATH)
+        conn = get_mysql_connection()
         cursor = conn.cursor()
 
         total_trades = successful_trades + unsuccessful_trades
@@ -1043,7 +999,7 @@ def backtest_strategy(df, initial_balance, leverage, stop_loss_percentage, take_
 def main():
     print("Program başlıyor...")
     try:
-        conn = create_db_connection()
+        conn = get_mysql_connection()
         cursor = conn.cursor()
         print("Veritabanı bağlantısı kuruldu.")
 
@@ -1318,7 +1274,7 @@ def check_database_status():
             print(f"ERROR: Veritabanı dosyası mevcut değil: {LOCAL_DB_PATH}")
             return
 
-        conn = sqlite3.connect(LOCAL_DB_PATH)
+        conn = get_mysql_connection()
         cursor = conn.cursor()
 
         # Tabloları listele

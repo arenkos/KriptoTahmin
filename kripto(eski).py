@@ -10,6 +10,7 @@ import sqlite3
 import requests
 import os
 import argparse  # Komut satırı argümanları için eklendi
+import mysql.connector
 
 # Web sunucusu bilgileri
 # DB_URL = 'https://www.aryazilimdanismanlik.com/kripto/crypto_data.db'
@@ -60,6 +61,22 @@ def upload_db():
     except Exception as e:
         print(f"Veritabanı yükleme hatası: {str(e)}")
         return False
+
+
+def get_mysql_connection():
+    try:
+        return mysql.connector.connect(
+            host="193.203.168.175",
+            user="u162605596_kripto2",
+            password="Arenkos1.",
+            database="u162605596_kripto2",
+            connection_timeout=60,
+            autocommit=True,
+            buffered=True
+        )
+    except mysql.connector.Error as err:
+        print(f"MySQL bağlantı hatası: {err}")
+        return None
 
 
 # Veritabanı bağlantısı oluşturma

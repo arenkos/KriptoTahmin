@@ -43,7 +43,7 @@
                     <div class="card text-center">
                         <div class="card-body p-2">
                             <div class="fw-bold">Toplam İşlem</div>
-                            <div>{{ stats.total }}</div>
+                            <div>{{ stats.total_trades }}</div>
                         </div>
                     </div>
                 </div>
@@ -51,7 +51,7 @@
                     <div class="card text-center">
                         <div class="card-body p-2">
                             <div class="fw-bold">LONG</div>
-                            <div>{{ stats.long }} <span class="text-success">(%{{ '%.1f'|format(stats.long_success_pct) }})</span></div>
+                            <div>{{ stats.total_long }} <span class="text-success">(%{{ '%.1f'|format(stats.long_success_rate) }})</span></div>
                         </div>
                     </div>
                 </div>
@@ -59,7 +59,7 @@
                     <div class="card text-center">
                         <div class="card-body p-2">
                             <div class="fw-bold">SHORT</div>
-                            <div>{{ stats.short }} <span class="text-success">(%{{ '%.1f'|format(stats.short_success_pct) }})</span></div>
+                            <div>{{ stats.total_short }} <span class="text-success">(%{{ '%.1f'|format(stats.short_success_rate) }})</span></div>
                         </div>
                     </div>
                 </div>
@@ -67,39 +67,23 @@
                     <div class="card text-center">
                         <div class="card-body p-2">
                             <div class="fw-bold">Başarı Oranı</div>
-                            <div>%{{ '%.1f'|format(stats.total_success_pct) }}</div>
+                            <div>%{{ '%.1f'|format(stats.success_rate) }}</div>
                         </div>
                     </div>
                 </div>
                 <div class="col-md-2 col-6">
                     <div class="card text-center">
                         <div class="card-body p-2">
-                            <div class="fw-bold">Toplam Kar</div>
-                            <div class="text-success">{{ '%.2f'|format(stats.total_profit) }} USDT</div>
+                            <div class="fw-bold">Toplam Kar/Zarar</div>
+                            <div class="{% if stats.total_profit > 0 %}text-success{% else %}text-danger{% endif %}">{{ '%.2f'|format(stats.total_profit) }} USDT</div>
                         </div>
                     </div>
                 </div>
                 <div class="col-md-2 col-6">
                     <div class="card text-center">
                         <div class="card-body p-2">
-                            <div class="fw-bold">Toplam Zarar</div>
-                            <div class="text-danger">{{ '%.2f'|format(stats.total_loss) }} USDT</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-2 col-6">
-                    <div class="card text-center">
-                        <div class="card-body p-2">
-                            <div class="fw-bold">En Büyük Kar</div>
-                            <div class="text-success">{{ '%.2f'|format(stats.max_profit) }} USDT</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-2 col-6">
-                    <div class="card text-center">
-                        <div class="card-body p-2">
-                            <div class="fw-bold">En Büyük Zarar</div>
-                            <div class="text-danger">{{ '%.2f'|format(stats.min_profit) }} USDT</div>
+                            <div class="fw-bold">Başarılı İşlem</div>
+                            <div class="text-success">{{ stats.successful_trades }}</div>
                         </div>
                     </div>
                 </div>

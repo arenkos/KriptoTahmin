@@ -13,4 +13,7 @@ Flask-SQLAlchemy
 Flask-WTF
 Werkzeug
 python-telegram-bot
-python-dotenv 
+python-dotenv
+mysql-connector-python
+websockets
+sqlalchemy 

@@ -2,7 +2,7 @@ import time
 import ccxt
 import pandas as pd
 import numpy as np
-import sqlite3
+import mysql.connector
 from datetime import datetime, timedelta
 import math
 import os
@@ -12,6 +12,46 @@ from app.extensions import db
 from config import Config
 import struct
 from websocket import WebSocketManager
+from sqlalchemy import create_engine
+
+# --- MySQL Bağlantı Fonksiyonları ---
+def get_mysql_connection():
+    try:
+        return mysql.connector.connect(
+            host="193.203.168.175",
+            user="u162605596_kripto2",
+            password="Arenkos1.",
+            database="u162605596_kripto2",
+            connection_timeout=60,
+            autocommit=True,
+            buffered=True
+        )
+    except mysql.connector.Error as err:
+        print(f"MySQL bağlantı hatası: {err}")
+        return None
+
+def set_mysql_connection():
+    try:
+        return mysql.connector.connect(
+            host="193.203.168.175",
+            user="u162605596_kripto2",
+            password="Arenkos1.",
+            database="u162605596_kripto2",
+            connection_timeout=60,
+            autocommit=True,
+            buffered=True
+        )
+    except mysql.connector.Error as err:
+        print(f"MySQL bağlantı hatası: {err}")
+        return None
+
+def get_sqlalchemy_engine():
+    """Pandas için SQLAlchemy engine oluştur"""
+    try:
+        return create_engine('mysql+mysqlconnector://u162605596_kripto2:Arenkos1.@193.203.168.175/u162605596_kripto2')
+    except Exception as err:
+        print(f"SQLAlchemy engine hatası: {err}")
+        return None
 
 # --- Ayarlar ---
 LOCAL_DB_PATH = 'crypto_data.db'
@@ -113,36 +153,46 @@ def generateSupertrend(close_array, high_array, low_array, atr_period, atr_multi
 
 # --- app.db'de tabloyu oluştur ---
 def create_appdb_table():
-    conn = sqlite3.connect(APP_DB_PATH)
+    conn = set_mysql_connection()
+    if not conn:
+        print("MySQL bağlantısı kurulamadı!")
+        return
     cursor = conn.cursor()
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS realtime_transactions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_email TEXT NOT NULL,
-        symbol TEXT NOT NULL,
-        trade_type TEXT NOT NULL,
-        entry_price REAL NOT NULL,
-        entry_time INTEGER NOT NULL,
-        entry_balance REAL NOT NULL,
-        exit_price REAL,
-        exit_time INTEGER,
-        exit_balance REAL,
-        profit_loss REAL,
-        trade_closed INTEGER NOT NULL
-    )
-    ''')
+    try:
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS realtime_transactions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_email VARCHAR(255) NOT NULL,
+            symbol VARCHAR(50) NOT NULL,
+            trade_type VARCHAR(10) NOT NULL,
+            entry_price DECIMAL(20,8) NOT NULL,
+            entry_time BIGINT NOT NULL,
+            entry_balance DECIMAL(20,8) NOT NULL,
+            exit_price DECIMAL(20,8),
+            exit_time BIGINT,
+            exit_balance DECIMAL(20,8),
+            profit_loss DECIMAL(20,8),
+            trade_closed TINYINT NOT NULL
+        )
+        ''')
+    except Exception as e:
+        print(f"Tablo oluşturulamadı veya zaten var: {e}")
     conn.commit()
     conn.close()
 
 
 # --- Eksik verileri Binance'ten çek ve kaydet ---
 def fetch_and_save_ohlcv(symbol, timeframe, limit=1000):
-    conn = sqlite3.connect(LOCAL_DB_PATH)
+    conn = get_mysql_connection()
+    if not conn:
+        print("MySQL bağlantısı kurulamadı!")
+        return pd.DataFrame()
     cursor = conn.cursor()
 
     # Veritabanındaki en son timestamp'i al
-    cursor.execute("SELECT MAX(timestamp) FROM ohlcv_data WHERE symbol = ? AND timeframe = ?", (symbol, timeframe))
-    last_timestamp_db = cursor.fetchone()[0]
+    cursor.execute("SELECT MAX(timestamp) FROM ohlcv_data WHERE symbol = %s AND timeframe = %s", (symbol, timeframe))
+    result = cursor.fetchone()
+    last_timestamp_db = result[0] if result[0] else None
 
     since = None
     now_ms = int(datetime.now().timestamp() * 1000)
@@ -191,7 +241,7 @@ def fetch_and_save_ohlcv(symbol, timeframe, limit=1000):
 
             # Zaman damgası zaten veritabanında olanları filtrele
             existing_timestamps = set()
-            cursor.execute("SELECT timestamp FROM ohlcv_data WHERE symbol = ? AND timeframe = ? AND timestamp >= ?",
+            cursor.execute("SELECT timestamp FROM ohlcv_data WHERE symbol = %s AND timeframe = %s AND timestamp >= %s",
                            (symbol, timeframe, current_since))
             existing_timestamps = {row[0] for row in cursor.fetchall()}
 
@@ -213,10 +263,10 @@ def fetch_and_save_ohlcv(symbol, timeframe, limit=1000):
             for _, row in filtered_df.iterrows():
                 try:
                     cursor.execute('''INSERT INTO ohlcv_data (symbol, timestamp, timeframe, open, high, low, close, volume)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
                                    (symbol, int(row['timestamp']), timeframe, row['open'], row['high'], row['low'],
                                     row['close'], row['volume']))
-                except sqlite3.IntegrityError:
+                except mysql.connector.IntegrityError:
                     pass
 
             conn.commit()
@@ -247,23 +297,38 @@ def fetch_and_save_ohlcv(symbol, timeframe, limit=1000):
 
 # --- crypto_data.db'den 1m verilerini oku ---
 def get_ohlcv_1m(limit=None):
-    conn = sqlite3.connect(LOCAL_DB_PATH)
-    if limit:
-        df = pd.read_sql_query(
-            "SELECT * FROM ohlcv_data WHERE symbol = ? AND timeframe = ? ORDER BY timestamp DESC LIMIT ?",
-            conn, params=(SYMBOL, TIMEFRAME, limit)
-        )
-        # Sıralamayı düzelt (eski tarihten yeniye)
-        df = df.sort_values('timestamp').reset_index(drop=True)
-    else:
-        df = pd.read_sql_query(
-            "SELECT * FROM ohlcv_data WHERE symbol = ? AND timeframe = ? ORDER BY timestamp",
-            conn, params=(SYMBOL, TIMEFRAME)
-        )
-    conn.close()
-    print("DEBUG: get_ohlcv_1m - DataFrame info after reading from DB:")
-    df.info()
-    return df
+    engine = get_sqlalchemy_engine()
+    if not engine:
+        print("SQLAlchemy engine oluşturulamadı!")
+        return pd.DataFrame()
+    
+    try:
+        if limit:
+            query = f"""
+            SELECT * FROM ohlcv_data 
+            WHERE symbol = '{SYMBOL}' AND timeframe = '{TIMEFRAME}' 
+            ORDER BY timestamp DESC LIMIT {limit}
+            """
+            df = pd.read_sql_query(query, engine)
+            # Sıralamayı düzelt (eski tarihten yeniye)
+            df = df.sort_values('timestamp').reset_index(drop=True)
+        else:
+            query = f"""
+            SELECT * FROM ohlcv_data 
+            WHERE symbol = '{SYMBOL}' AND timeframe = '{TIMEFRAME}' 
+            ORDER BY timestamp
+            """
+            df = pd.read_sql_query(query, engine)
+        
+        print("DEBUG: get_ohlcv_1m - DataFrame info after reading from DB:")
+        df.info()
+        return df
+        
+    except Exception as e:
+        print(f"Veri okuma hatası: {e}")
+        return pd.DataFrame()
+    finally:
+        engine.dispose()
 
 
 # --- Strateji ve İşlem Kaydı (deneme fonksiyonu mantığıyla) ---
@@ -298,21 +363,24 @@ def run_strategy_and_save(df, user_email, symbol):
     supertrend = generateSupertrend(close_array, high_array, low_array, ATR_PERIOD, ATR_MULTIPLIER)
 
     # Veritabanı bağlantısı
-    conn = sqlite3.connect(APP_DB_PATH)
+    conn = set_mysql_connection()
+    if not conn:
+        print("MySQL bağlantısı kurulamadı!")
+        return
     cursor = conn.cursor()
 
     # Mevcut açık işlemleri kontrol et
     cursor.execute("""
         SELECT id, trade_type, entry_price, entry_time, entry_balance
         FROM realtime_transactions
-        WHERE user_email = ? AND symbol = ? AND trade_closed = 0
+        WHERE user_email = %s AND symbol = %s AND trade_closed = 0
     """, (user_email, symbol))
     open_trades = cursor.fetchall()
 
     # Mevcut bakiyeyi hesapla (son işlemden)
     cursor.execute("""
         SELECT exit_balance FROM realtime_transactions
-        WHERE user_email = ? AND symbol = ? AND trade_closed = 1
+        WHERE user_email = %s AND symbol = %s AND trade_closed = 1
         ORDER BY exit_time DESC LIMIT 1
     """, (user_email, symbol))
     last_balance = cursor.fetchone()
@@ -345,7 +413,7 @@ def run_strategy_and_save(df, user_email, symbol):
     # *** DÜZELTME: Sadece birden fazla açık pozisyon kontrolü ***
     cursor.execute("""
         SELECT COUNT(*) FROM realtime_transactions
-        WHERE user_email = ? AND symbol = ? AND entry_time = ? AND trade_closed = 0
+        WHERE user_email = %s AND symbol = %s AND entry_time = %s AND trade_closed = 0
     """, (user_email, symbol, current_timestamp))
 
     existing_open_count = cursor.fetchone()[0]
@@ -370,8 +438,8 @@ def run_strategy_and_save(df, user_email, symbol):
 
                 cursor.execute("""
                     UPDATE realtime_transactions
-                    SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
-                    WHERE id = ?
+                    SET exit_price = %s, exit_time = %s, exit_balance = %s, profit_loss = %s, trade_closed = 1
+                    WHERE id = %s
                 """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
 
                 print(
@@ -387,8 +455,8 @@ def run_strategy_and_save(df, user_email, symbol):
 
                 cursor.execute("""
                     UPDATE realtime_transactions
-                    SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
-                    WHERE id = ?
+                    SET exit_price = %s, exit_time = %s, exit_balance = %s, profit_loss = %s, trade_closed = 1
+                    WHERE id = %s
                 """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
 
                 print(
@@ -406,8 +474,8 @@ def run_strategy_and_save(df, user_email, symbol):
                 # Mevcut LONG pozisyonu kapat
                 cursor.execute("""
                     UPDATE realtime_transactions
-                    SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
-                    WHERE id = ?
+                    SET exit_price = %s, exit_time = %s, exit_balance = %s, profit_loss = %s, trade_closed = 1
+                    WHERE id = %s
                 """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
 
                 print(
@@ -418,7 +486,7 @@ def run_strategy_and_save(df, user_email, symbol):
                     cursor.execute("""
                         INSERT INTO realtime_transactions 
                         (user_email, symbol, trade_type, entry_price, entry_time, entry_balance, trade_closed)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """, (user_email, symbol, 'SHORT', exit_price, current_timestamp, new_balance, 0))
 
                     print(f"Yeni SHORT pozisyon açıldı: {exit_price} @ Bakiye: {new_balance:.2f}")
@@ -443,8 +511,8 @@ def run_strategy_and_save(df, user_email, symbol):
 
                 cursor.execute("""
                     UPDATE realtime_transactions
-                    SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
-                    WHERE id = ?
+                    SET exit_price = %s, exit_time = %s, exit_balance = %s, profit_loss = %s, trade_closed = 1
+                    WHERE id = %s
                 """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
 
                 print(
@@ -460,8 +528,8 @@ def run_strategy_and_save(df, user_email, symbol):
 
                 cursor.execute("""
                     UPDATE realtime_transactions
-                    SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
-                    WHERE id = ?
+                    SET exit_price = %s, exit_time = %s, exit_balance = %s, profit_loss = %s, trade_closed = 1
+                    WHERE id = %s
                 """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
 
                 print(
@@ -479,8 +547,8 @@ def run_strategy_and_save(df, user_email, symbol):
                 # Mevcut SHORT pozisyonu kapat
                 cursor.execute("""
                     UPDATE realtime_transactions
-                    SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
-                    WHERE id = ?
+                    SET exit_price = %s, exit_time = %s, exit_balance = %s, profit_loss = %s, trade_closed = 1
+                    WHERE id = %s
                 """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
 
                 print(
@@ -491,7 +559,7 @@ def run_strategy_and_save(df, user_email, symbol):
                     cursor.execute("""
                         INSERT INTO realtime_transactions 
                         (user_email, symbol, trade_type, entry_price, entry_time, entry_balance, trade_closed)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """, (user_email, symbol, 'LONG', exit_price, current_timestamp, new_balance, 0))
 
                     print(f"Yeni LONG pozisyon açıldı: {exit_price} @ Bakiye: {new_balance:.2f}")
@@ -513,7 +581,7 @@ def run_strategy_and_save(df, user_email, symbol):
             cursor.execute("""
                 INSERT INTO realtime_transactions 
                 (user_email, symbol, trade_type, entry_price, entry_time, entry_balance, trade_closed)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (user_email, symbol, 'LONG', entry_price, current_timestamp, current_balance, 0))
 
             print(f"Yeni LONG pozisyon açıldı: {entry_price} @ Bakiye: {current_balance:.2f}")
@@ -525,7 +593,7 @@ def run_strategy_and_save(df, user_email, symbol):
             cursor.execute("""
                 INSERT INTO realtime_transactions 
                 (user_email, symbol, trade_type, entry_price, entry_time, entry_balance, trade_closed)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (user_email, symbol, 'SHORT', entry_price, current_timestamp, current_balance, 0))
 
             print(f"Yeni SHORT pozisyon açıldı: {entry_price} @ Bakiye: {current_balance:.2f}")

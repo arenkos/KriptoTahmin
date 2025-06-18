@@ -11,6 +11,7 @@ import requests
 import os
 import argparse
 import traceback
+import mysql.connector
 
 # Web sunucusu bilgileri
 # DB_URL = 'https://www.aryazilimdanismanlik.com/kripto/crypto_data.db'
@@ -1188,6 +1189,22 @@ def check_database_status():
     except Exception as e:
         print(f"Veritabanı kontrol hatası: {e}")
         traceback.print_exc()
+
+
+def get_mysql_connection():
+    try:
+        return mysql.connector.connect(
+            host="193.203.168.175",
+            user="u162605596_kripto2",
+            password="Arenkos1.",
+            database="u162605596_kripto2",
+            connection_timeout=60,
+            autocommit=True,
+            buffered=True
+        )
+    except mysql.connector.Error as err:
+        print(f"MySQL bağlantı hatası: {err}")
+        return None
 
 
 if __name__ == "__main__":

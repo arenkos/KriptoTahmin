@@ -1,52 +1,93 @@
-import sqlite3
+import mysql.connector
 import pandas as pd
+from sqlalchemy import create_engine
+
+def get_mysql_connection():
+    try:
+        return mysql.connector.connect(
+            host="193.203.168.175",
+            user="u162605596_kripto2",
+            password="Arenkos1.",
+            database="u162605596_kripto2",
+            connection_timeout=60,
+            autocommit=True,
+            buffered=True
+        )
+    except mysql.connector.Error as err:
+        print(f"MySQL bağlantı hatası: {err}")
+        return None
+
+def get_sqlalchemy_engine():
+    """Pandas için SQLAlchemy engine oluştur"""
+    try:
+        return create_engine('mysql+mysqlconnector://u162605596_kripto2:Arenkos1.@193.203.168.175/u162605596_kripto2')
+    except Exception as err:
+        print(f"SQLAlchemy engine hatası: {err}")
+        return None
 
 def get_db_connection():
-    conn = sqlite3.connect('crypto_data.db')
-    return conn
+    return get_mysql_connection()
 
 def get_db_connection2():
-    conn = sqlite3.connect('app.db')
-    return conn
+    return get_mysql_connection()
 
 def read_analiz():
-    conn = get_db_connection()
+    engine = get_sqlalchemy_engine()
+    if not engine:
+        print("SQLAlchemy engine oluşturulamadı!")
+        return
 
     query = """
     SELECT DISTINCT *
     FROM analysis_results WHERE final_balance>=100;
     """
 
-    df = pd.read_sql_query(query, conn)
-    conn.close()
-
-    print(df)
+    try:
+        df = pd.read_sql_query(query, engine)
+        print(df)
+    except Exception as e:
+        print(f"Veri okuma hatası: {e}")
+    finally:
+        engine.dispose()
 
 def read_islemler():
-    conn = get_db_connection()
+    engine = get_sqlalchemy_engine()
+    if not engine:
+        print("SQLAlchemy engine oluşturulamadı!")
+        return
 
     query = """
     SELECT COUNT(*)
     FROM backtest_transactions ;
     """
 
-    df = pd.read_sql_query(query, conn)
-    conn.close()
-
-    print(df)
+    try:
+        df = pd.read_sql_query(query, engine)
+        print(df)
+    except Exception as e:
+        print(f"Veri okuma hatası: {e}")
+    finally:
+        engine.dispose()
 
 def read_veriler():
-    conn = get_db_connection()
+    engine = get_sqlalchemy_engine()
+    if not engine:
+        print("SQLAlchemy engine oluşturulamadı!")
+        return
 
     query = """
-    SELECT *, datetime(timestamp / 1000, 'unixepoch') AS human_readable_time
+    SELECT *, FROM_UNIXTIME(timestamp / 1000) AS human_readable_time
     FROM ohlcv_data
     WHERE symbol LIKE '%BTC%' AND timeframe = '1m' ORDER BY timestamp DESC LIMIT 15;
     """
-    df = pd.read_sql_query(query, conn)
-    conn.close()
-
-    print(df)
+    
+    try:
+        df = pd.read_sql_query(query, engine)
+        print(df)
+    except Exception as e:
+        print(f"Veri okuma hatası: {e}")
+    finally:
+        engine.dispose()
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -62,16 +103,23 @@ def read_veriler():
     print("Güncelleme tamamlandı.")
 
 def read_islem_gercek():
-    conn = get_db_connection2()
-    cursor = conn.cursor()
+    engine = get_sqlalchemy_engine()
+    if not engine:
+        print("SQLAlchemy engine oluşturulamadı!")
+        return
+
     query = """
-            SELECT *,datetime(entry_time / 1000, 'unixepoch') AS enter_time FROM realtime_transactions;
+            SELECT *, FROM_UNIXTIME(entry_time / 1000) AS enter_time FROM realtime_transactions;
         """
 
-    df = pd.read_sql_query(query, conn)
-    conn.close()
+    try:
+        df = pd.read_sql_query(query, engine)
+        print(df)
+    except Exception as e:
+        print(f"Veri okuma hatası: {e}")
+    finally:
+        engine.dispose()
 
-    print(df)
 def delete_veriler_gercek():
     conn = get_db_connection2()
     cursor = conn.cursor()
@@ -85,20 +133,28 @@ def delete_veriler_gercek():
 
 def tablo_liste():
     # Veritabanına bağlan
-    conn = sqlite3.connect('instance/app.db')
+    conn = get_mysql_connection()
+    if not conn:
+        print("MySQL bağlantısı kurulamadı!")
+        return []
     cursor = conn.cursor()
 
-    # Tabloları sorgula
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    # Tabloları listele
+    cursor.execute("SHOW TABLES")
     tables = cursor.fetchall()
-
-    # Tabloları yazdır
-    print("Veritabanındaki tablolar:")
+    
+    table_list = []
     for table in tables:
-        print(table[0])
-
-    # Bağlantıyı kapat
+        table_name = table[0]
+        cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+        count = cursor.fetchone()[0]
+        table_list.append({
+            'name': table_name,
+            'count': count
+        })
+    
     conn.close()
+    return table_list
 
 def delete_analiz():
     conn = get_db_connection()
@@ -111,6 +167,8 @@ def delete_analiz():
     cursor.execute(query)
     conn.commit()
     conn.close()
+
+    print("Tüm veriler silindi.")
 
 def delete_islemler():
     conn = get_db_connection()
@@ -125,8 +183,12 @@ def delete_islemler():
     conn.close()
 
     print("Tüm veriler silindi.")
+
 def find_duplicates():
-    conn = get_db_connection()
+    engine = get_sqlalchemy_engine()
+    if not engine:
+        print("SQLAlchemy engine oluşturulamadı!")
+        return
 
     # Tekrarlanan kayıtları bul
     query = """
@@ -137,27 +199,30 @@ def find_duplicates():
         ORDER BY tekrar_sayisi DESC
         """
     
-    duplicates = pd.read_sql_query(query, conn)
-    
-    if len(duplicates) > 0:
-        print("\nTekrarlanan kayıtlar:")
-        print(duplicates)
+    try:
+        duplicates = pd.read_sql_query(query, engine)
         
-        # Her tekrarlanan kayıt için detaylı bilgi
-        for _, row in duplicates.iterrows():
-            detail_query = """
-            SELECT *
-FROM ohlcv_data
-            WHERE symbol = ? AND timeframe = ? AND timestamp = ?
-            ORDER BY id
-            """
-            details = pd.read_sql_query(detail_query, conn, params=(row['symbol'], row['timeframe'], row['timestamp']))
-            print(f"\n{row['symbol']} - {row['timeframe']} - {row['timestamp']} için detaylar:")
-            print(details)
-    else:
-        print("\nTekrarlanan kayıt bulunamadı.")
-    
-    conn.close()
+        if len(duplicates) > 0:
+            print("\nTekrarlanan kayıtlar:")
+            print(duplicates)
+            
+            # Her tekrarlanan kayıt için detaylı bilgi
+            for _, row in duplicates.iterrows():
+                detail_query = """
+                SELECT *
+                FROM ohlcv_data
+                WHERE symbol = %s AND timeframe = %s AND timestamp = %s
+                ORDER BY id
+                """
+                details = pd.read_sql_query(detail_query, engine, params=(row['symbol'], row['timeframe'], row['timestamp']))
+                print(f"\n{row['symbol']} - {row['timeframe']} - {row['timestamp']} için detaylar:")
+                print(details)
+        else:
+            print("\nTekrarlanan kayıt bulunamadı.")
+    except Exception as e:
+        print(f"Veri okuma hatası: {e}")
+    finally:
+        engine.dispose()
 
 def clean_duplicates():
     conn = get_db_connection()
@@ -179,6 +244,51 @@ def clean_duplicates():
     conn.close()
     
     print(f"\n{deleted_count} adet tekrarlanan kayıt temizlendi.")
+
+def ohlcv_veri_cek(symbol, timeframe, limit=100):
+    """OHLCV verilerini çek"""
+    engine = get_sqlalchemy_engine()
+    if not engine:
+        return pd.DataFrame()
+    
+    query = """
+    SELECT timestamp, open, high, low, close, volume
+    FROM ohlcv_data
+    WHERE symbol = %s AND timeframe = %s
+    ORDER BY timestamp DESC
+    LIMIT %s
+    """
+    
+    try:
+        df = pd.read_sql_query(query, engine, params=(symbol, timeframe, limit))
+        return df
+    except Exception as e:
+        print(f"Veri okuma hatası: {e}")
+        return pd.DataFrame()
+    finally:
+        engine.dispose()
+
+def analysis_sonuclari_cek():
+    """Analiz sonuçlarını çek"""
+    engine = get_sqlalchemy_engine()
+    if not engine:
+        return pd.DataFrame()
+    
+    query = """
+    SELECT symbol, timeframe, leverage, stop_percentage, kar_al_percentage,
+           successful_trades, unsuccessful_trades, final_balance, success_rate
+    FROM analysis_results
+    ORDER BY final_balance DESC
+    """
+    
+    try:
+        df = pd.read_sql_query(query, engine)
+        return df
+    except Exception as e:
+        print(f"Veri okuma hatası: {e}")
+        return pd.DataFrame()
+    finally:
+        engine.dispose()
 
 if __name__ == "__main__":
     print("Veritabanındaki tekrarlanan kayıtları kontrol ediyorum...")

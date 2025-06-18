@@ -1,7 +1,7 @@
 import asyncio
 import websockets
 import json
-import sqlite3
+import mysql.connector
 import threading
 import time
 from datetime import datetime
@@ -12,6 +12,38 @@ import ssl
 # Logging konfigürasyonu
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# --- MySQL Bağlantı Fonksiyonu ---
+def get_mysql_connection():
+    try:
+        return mysql.connector.connect(
+            host="193.203.168.175",
+            user="u162605596_kripto2",
+            password="Arenkos1.",
+            database="u162605596_kripto2",
+            connection_timeout=60,
+            autocommit=True,
+            buffered=True
+        )
+    except mysql.connector.Error as err:
+        logger.error(f"MySQL bağlantı hatası: {err}")
+        return None
+    
+def set_mysql_connection():
+    try:
+        return mysql.connector.connect(
+            host="193.203.168.175",
+            user="u162605596_kripto2",
+            password="Arenkos1.",
+            database="u162605596_kripto2",
+            connection_timeout=60,
+            autocommit=True,
+            buffered=True
+        )
+    except mysql.connector.Error as err:
+        print(f"MySQL bağlantı hatası: {err}")
+        return None
 
 
 class BinanceWebSocketClient:
@@ -122,22 +154,26 @@ class BinanceWebSocketClient:
     def save_to_database(self, kline_data):
         """Kline verisini veritabanına kaydet"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            # OHLCV işlemleri için get_mysql_connection kullan
+            conn = get_mysql_connection()
+            if not conn:
+                logger.error("MySQL bağlantısı kurulamadı!")
+                return
             cursor = conn.cursor()
 
             # Tabloyu oluştur (yoksa)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS ohlcv_data (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    symbol TEXT NOT NULL,
-                    timestamp INTEGER NOT NULL,
-                    timeframe TEXT NOT NULL,
-                    open REAL NOT NULL,
-                    high REAL NOT NULL,
-                    low REAL NOT NULL,
-                    close REAL NOT NULL,
-                    volume REAL NOT NULL,
-                    UNIQUE(symbol, timestamp, timeframe)
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    symbol VARCHAR(50) NOT NULL,
+                    timestamp BIGINT NOT NULL,
+                    timeframe VARCHAR(10) NOT NULL,
+                    open DECIMAL(20,8) NOT NULL,
+                    high DECIMAL(20,8) NOT NULL,
+                    low DECIMAL(20,8) NOT NULL,
+                    close DECIMAL(20,8) NOT NULL,
+                    volume DECIMAL(20,8) NOT NULL,
+                    UNIQUE KEY unique_symbol_timestamp_timeframe (symbol, timestamp, timeframe)
                 )
             ''')
 
@@ -145,9 +181,15 @@ class BinanceWebSocketClient:
             symbol_formatted = kline_data['symbol'].replace('USDT', '/USDT')
 
             cursor.execute('''
-                INSERT OR REPLACE INTO ohlcv_data 
+                INSERT INTO ohlcv_data 
                 (symbol, timestamp, timeframe, open, high, low, close, volume)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                open = VALUES(open),
+                high = VALUES(high),
+                low = VALUES(low),
+                close = VALUES(close),
+                volume = VALUES(volume)
             ''', (
                 symbol_formatted,
                 kline_data['timestamp'],
@@ -165,8 +207,16 @@ class BinanceWebSocketClient:
             logger.debug(
                 f"Veri kaydedildi: {symbol_formatted} - {datetime.fromtimestamp(kline_data['timestamp'] / 1000)}")
 
-        except sqlite3.Error as e:
-            logger.error(f"Veritabanı hatası: {e}")
+            # Eğer realtime_transactions tablosuna da yazmak isterseniz:
+            # set_conn = set_mysql_connection()
+            # if set_conn:
+            #     set_cursor = set_conn.cursor()
+            #     # Burada realtime_transactions için ekleme/güncelleme işlemleri yapılabilir
+            #     set_conn.commit()
+            #     set_conn.close()
+
+        except mysql.connector.Error as err:
+            logger.error(f"MySQL hatası: {err}")
         except Exception as e:
             logger.error(f"Veri kaydetme hatası: {e}")
 

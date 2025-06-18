@@ -45,7 +45,7 @@
             </h5>
         </div>
         <div class="card-body">
-            {% if results %}
+            {% if filtered_results %}
             <div class="table-responsive">
                 <table class="table table-striped table-hover" id="results-table">
                     <thead>
@@ -66,7 +66,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for result in results %}
+                        {% for result in filtered_results %}
                         <tr style="cursor: pointer;" onclick="window.location='{{ url_for('main.transaction_history', symbol=result.symbol, timeframe=result.timeframe) }}'">
                             <td>{{ result.symbol }}</td>
                             <td>{{ result.timeframe }}</td>

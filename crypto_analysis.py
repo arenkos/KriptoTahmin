@@ -5,7 +5,7 @@ import numpy as np
 from datetime import datetime
 import ta
 import math
-import sqlite3  # SQLite veritabanı için eklendi
+import mysql.connector
 import argparse # Komut satırı argümanları için eklendi
 
 # Komut satırı argümanlarını tanımla
@@ -30,9 +30,24 @@ symbolName = [
     "LINK", "UNI", "ATOM", "LTC", "ETC"
 ]
 
+def get_mysql_connection():
+    try:
+        return mysql.connector.connect(
+            host="193.203.168.175",
+            user="u162605596_kripto2",
+            password="Arenkos1.",
+            database="u162605596_kripto2",
+            connection_timeout=60,
+            autocommit=True,
+            buffered=True
+        )
+    except mysql.connector.Error as err:
+        print(f"MySQL bağlantı hatası: {err}")
+        return None
+
 # Veritabanı bağlantısı oluşturma
 def create_db_connection():
-    conn = sqlite3.connect('crypto_data.db')
+    conn = get_mysql_connection()
     cursor = conn.cursor()
     
     # Gerekli tabloları oluşturma
@@ -96,7 +111,7 @@ def save_to_db(conn, symbol, df, timeframe):
 def save_results_to_db(symbol, timeframe, leverage, stop_percentage, kar_al_percentage, atr_period, atr_multiplier, 
                       successful_trades, unsuccessful_trades, final_balance, optimization_type='balance'):
     try:
-        conn = sqlite3.connect('crypto_data.db')
+        conn = get_mysql_connection()
         cursor = conn.cursor()
         
         total_trades = successful_trades + unsuccessful_trades

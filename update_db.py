@@ -1,4 +1,4 @@
-import sqlite3
+import mysql.connector
 import ccxt
 import time
 import pandas as pd
@@ -16,9 +16,24 @@ timeframes = {
     "30m": 48, "1h": 24, "2h": 12, "4h": 6, "1d": 1
 }
 
+def get_mysql_connection():
+    try:
+        return mysql.connector.connect(
+            host="193.203.168.175",
+            user="u162605596_kripto2",
+            password="Arenkos1.",
+            database="u162605596_kripto2",
+            connection_timeout=60,
+            autocommit=True,
+            buffered=True
+        )
+    except mysql.connector.Error as err:
+        print(f"MySQL bağlantı hatası: {err}")
+        return None
+
 # --- DB bağlantısı ve tablo oluşturma ---
 def create_db_connection():
-    conn = sqlite3.connect('crypto_data.db')
+    conn = get_mysql_connection()
     cursor = conn.cursor()
 
     # Mevcut tabloyu yedekle
@@ -90,8 +105,9 @@ def insert_ohlcv_data(conn, symbol, timeframe, data):
                 (symbol, timestamp, timeframe, open, high, low, close, volume)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (symbol, row[0], timeframe, row[1], row[2], row[3], row[4], row[5]))
-        except sqlite3.IntegrityError:
+        except mysql.connector.Error as err:
             # Tekrarlanan kayıt varsa atla
+            print(f"MySQL veri ekleme hatası: {err}")
             continue
     conn.commit()
 

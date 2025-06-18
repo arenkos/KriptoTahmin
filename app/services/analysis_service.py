@@ -1,19 +1,36 @@
-import sqlite3
+import mysql.connector
 import pandas as pd
 from app.services.backtest_service import BacktestService
 from app.services.ohlcv_service import OHLCVService
+
+def get_mysql_connection():
+    try:
+        return mysql.connector.connect(
+            host="193.203.168.175",
+            user="u162605596_kripto2",
+            password="Arenkos1.",
+            database="u162605596_kripto2",
+            connection_timeout=60,
+            autocommit=True,
+            buffered=True
+        )
+    except mysql.connector.Error as err:
+        print(f"MySQL bağlantı hatası: {err}")
+        return None
 
 class AnalysisService:
     @staticmethod
     def get_results_by_timeframe(timeframe):
         """Belirli bir zaman dilimi için tüm kripto para birimlerinin analiz sonuçlarını getirir"""
-        conn = sqlite3.connect('crypto_data.db')
+        conn = get_mysql_connection()
+        if not conn:
+            return []
         cursor = conn.cursor()
         
         query = '''
         SELECT symbol, leverage, stop_percentage, kar_al_percentage, successful_trades, unsuccessful_trades, final_balance
         FROM analysis_results
-        WHERE timeframe = ?
+        WHERE timeframe = %s
         ORDER BY final_balance DESC
         '''
         
@@ -44,7 +61,9 @@ class AnalysisService:
     @staticmethod
     def get_best_results():
         """Tüm zaman dilimleri için en iyi sonuçları getirir"""
-        conn = sqlite3.connect('crypto_data.db')
+        conn = get_mysql_connection()
+        if not conn:
+            return []
         cursor = conn.cursor()
         
         query = '''

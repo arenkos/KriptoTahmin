@@ -6,11 +6,27 @@ import struct
 from datetime import datetime
 import ta
 import math
-import sqlite3
+import mysql.connector
 import requests
 import os
 import argparse
 import traceback
+
+# MySQL bağlantı fonksiyonu
+def get_mysql_connection():
+    try:
+        return mysql.connector.connect(
+            host="193.203.168.175",
+            user="u162605596_kripto2",
+            password="Arenkos1.",
+            database="u162605596_kripto2",
+            connection_timeout=60,
+            autocommit=True,
+            buffered=True
+        )
+    except mysql.connector.Error as err:
+        print(f"MySQL bağlantı hatası: {err}")
+        return None
 
 # Web sunucusu bilgileri
 # DB_URL = 'https://www.aryazilimdanismanlik.com/kripto/crypto_data.db'
@@ -65,57 +81,61 @@ def upload_db():
 
 # Veritabanı bağlantısı oluşturma
 def create_db_connection():
-    conn = sqlite3.connect(LOCAL_DB_PATH)
+    conn = get_mysql_connection()
+    if not conn:
+        print("MySQL bağlantısı kurulamadı!")
+        return None
     cursor = conn.cursor()
 
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS ohlcv_data (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        symbol TEXT,
-        timestamp INTEGER,
-        timeframe TEXT,
-        open REAL,
-        high REAL,
-        low REAL,
-        close REAL,
-        volume REAL
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        symbol VARCHAR(50),
+        timestamp BIGINT,
+        timeframe VARCHAR(10),
+        open DECIMAL(20,8),
+        high DECIMAL(20,8),
+        low DECIMAL(20,8),
+        close DECIMAL(20,8),
+        volume DECIMAL(20,8),
+        UNIQUE KEY unique_symbol_timeframe_timestamp (symbol, timeframe, timestamp)
     )
     ''')
 
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS analysis_results (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        symbol TEXT NOT NULL,
-        timeframe TEXT NOT NULL,
-        leverage REAL NOT NULL,
-        stop_percentage REAL NOT NULL,
-        kar_al_percentage REAL NOT NULL,
-        atr_period INTEGER NOT NULL,
-        atr_multiplier REAL NOT NULL,
-        successful_trades INTEGER NOT NULL,
-        unsuccessful_trades INTEGER NOT NULL,
-        final_balance REAL NOT NULL,
-        success_rate REAL NOT NULL,
-        optimization_type TEXT NOT NULL,  -- 'balance' veya 'success_rate'
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        symbol VARCHAR(50) NOT NULL,
+        timeframe VARCHAR(10) NOT NULL,
+        leverage DECIMAL(10,4) NOT NULL,
+        stop_percentage DECIMAL(10,4) NOT NULL,
+        kar_al_percentage DECIMAL(10,4) NOT NULL,
+        atr_period INT NOT NULL,
+        atr_multiplier DECIMAL(10,4) NOT NULL,
+        successful_trades INT NOT NULL,
+        unsuccessful_trades INT NOT NULL,
+        final_balance DECIMAL(20,8) NOT NULL,
+        success_rate DECIMAL(10,4) NOT NULL,
+        optimization_type VARCHAR(20) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(symbol, timeframe, optimization_type)
+        UNIQUE KEY unique_symbol_timeframe_optimization (symbol, timeframe, optimization_type)
     )
     ''')
 
     # İşlem geçmişi için yeni tablo
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS backtest_transactions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        analysis_id INTEGER NOT NULL,
-        trade_type TEXT NOT NULL,
-        entry_price REAL NOT NULL,
-        entry_time INTEGER NOT NULL,
-        entry_balance REAL NOT NULL,
-        exit_price REAL,
-        exit_time INTEGER,
-        exit_balance REAL,
-        profit_loss REAL,
-        trade_closed INTEGER NOT NULL,
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        analysis_id INT NOT NULL,
+        trade_type VARCHAR(10) NOT NULL,
+        entry_price DECIMAL(20,8) NOT NULL,
+        entry_time BIGINT NOT NULL,
+        entry_balance DECIMAL(20,8) NOT NULL,
+        exit_price DECIMAL(20,8),
+        exit_time BIGINT,
+        exit_balance DECIMAL(20,8),
+        profit_loss DECIMAL(20,8),
+        trade_closed TINYINT NOT NULL,
         FOREIGN KEY (analysis_id) REFERENCES analysis_results(id)
     )
     ''')
@@ -156,6 +176,7 @@ def save_results_to_db(symbol, timeframe, leverage, stop_percentage, kar_al_perc
             print(f"ERROR: Veritabanı dosyası bulunamadı: {LOCAL_DB_PATH}")
             return
 
+        conn = get_mysql_connection()
         conn = sqlite3.connect(LOCAL_DB_PATH)
         cursor = conn.cursor()
 

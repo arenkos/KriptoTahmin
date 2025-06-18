@@ -16,10 +16,34 @@ from app.models.database import db, User, TradingSettings
 import websocket
 import json
 import threading
-from binance.client import Client
-from binance.websockets import BinanceSocketManager
 from concurrent.futures import ThreadPoolExecutor
 import argparse
+import mysql.connector
+from sqlalchemy import create_engine
+
+# --- MySQL Bağlantı Fonksiyonları ---
+def get_mysql_connection():
+    try:
+        return mysql.connector.connect(
+            host="193.203.168.175",
+            user="u162605596_kripto2",
+            password="Arenkos1.",
+            database="u162605596_kripto2",
+            connection_timeout=60,
+            autocommit=True,
+            buffered=True
+        )
+    except mysql.connector.Error as err:
+        print(f"MySQL bağlantı hatası: {err}")
+        return None
+
+def get_sqlalchemy_engine():
+    """Pandas için SQLAlchemy engine oluştur"""
+    try:
+        return create_engine('mysql+mysqlconnector://u162605596_kripto2:Arenkos1.@193.203.168.175/u162605596_kripto2')
+    except Exception as err:
+        print(f"SQLAlchemy engine hatası: {err}")
+        return None
 
 # --- Logging ayarları ---
 logging.basicConfig(
@@ -59,14 +83,18 @@ class TradingStrategy:
     def __init__(self, symbol, timeframe):
         self.symbol = symbol
         self.timeframe = timeframe
-        self.conn = sqlite3.connect(db_name)
-        self.cursor = self.conn.cursor()
+        self.conn = get_mysql_connection()
+        self.cursor = self.conn.cursor() if self.conn else None
         self.last_signal = None
         self.last_check_time = 0
         
     def check_signals(self):
         """Belirli bir sembol ve timeframe için sinyal kontrolü yap"""
         try:
+            if not self.conn or not self.cursor:
+                logger.error("MySQL bağlantısı kurulamadı!")
+                return
+                
             current_time = time.time()
             # Her timeframe için uygun kontrol aralığı
             check_interval = {
@@ -92,7 +120,7 @@ class TradingStrategy:
             self.cursor.execute('''
             SELECT timestamp, open, high, low, close, volume
             FROM ohlcv_data
-            WHERE symbol = ? AND timeframe = ?
+            WHERE symbol = %s AND timeframe = %s
             ORDER BY timestamp DESC
             LIMIT 100
             ''', (self.symbol, self.timeframe))
@@ -137,8 +165,6 @@ class TradingStrategy:
 
 class WebSocketManager:
     def __init__(self):
-        self.client = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
-        self.bm = BinanceSocketManager(self.client)
         self.conn = None
         self.cursor = None
         self.strategies = {}
@@ -147,32 +173,38 @@ class WebSocketManager:
         
     def initialize_database(self):
         """Veritabanı bağlantısını başlat ve tabloları oluştur"""
-        self.conn = sqlite3.connect(db_name)
+        self.conn = get_mysql_connection()
+        if not self.conn:
+            logger.error("MySQL bağlantısı kurulamadı!")
+            return
         self.cursor = self.conn.cursor()
         
-        # OHLCV tablosunu oluştur
-        self.cursor.execute('''
-        CREATE TABLE IF NOT EXISTS ohlcv_data (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol TEXT,
-            timeframe TEXT,
-            timestamp INTEGER,
-            open REAL,
-            high REAL,
-            low REAL,
-            close REAL,
-            volume REAL,
-            UNIQUE(symbol, timeframe, timestamp)
-        )
-        ''')
-        
-        # İndeksler oluştur
-        self.cursor.execute('''
-        CREATE INDEX IF NOT EXISTS idx_symbol_timeframe 
-        ON ohlcv_data(symbol, timeframe)
-        ''')
-        
-        self.conn.commit()
+        # OHLCV tablosunu oluştur (MySQL kullanıcısının yetkisi yoksa hata yutacak)
+        try:
+            self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ohlcv_data (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                symbol VARCHAR(50) NOT NULL,
+                timeframe VARCHAR(10) NOT NULL,
+                timestamp BIGINT NOT NULL,
+                open DECIMAL(20,8) NOT NULL,
+                high DECIMAL(20,8) NOT NULL,
+                low DECIMAL(20,8) NOT NULL,
+                close DECIMAL(20,8) NOT NULL,
+                volume DECIMAL(20,8) NOT NULL,
+                UNIQUE KEY unique_symbol_timestamp_timeframe (symbol, timeframe, timestamp)
+            )
+            ''')
+            
+            # İndeksler oluştur
+            self.cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_symbol_timeframe 
+            ON ohlcv_data(symbol, timeframe)
+            ''')
+            
+            self.conn.commit()
+        except Exception as e:
+            logger.warning(f"Tablo oluşturma hatası (muhtemelen yetki yok): {e}")
         
     def process_kline_data(self, msg):
         """WebSocket'ten gelen kline verilerini işle"""
@@ -193,9 +225,15 @@ class WebSocketManager:
             
             # Veritabanına kaydet
             self.cursor.execute('''
-            INSERT OR REPLACE INTO ohlcv_data 
+            INSERT INTO ohlcv_data 
             (symbol, timeframe, timestamp, open, high, low, close, volume)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+            open = VALUES(open),
+            high = VALUES(high),
+            low = VALUES(low),
+            close = VALUES(close),
+            volume = VALUES(volume)
             ''', (symbol, timeframe, timestamp, open_price, high_price, 
                   low_price, close_price, volume))
             
@@ -333,21 +371,23 @@ def get_user_settings():
             conn.close()
 
 def fetch_data_from_db(symbol, timeframe):
-    """Veritabanından OHLCV verilerini çeker ve DataFrame olarak döndürür."""
-    conn = None
+    """Veritabanından OHLCV verilerini çek"""
     try:
-        logger.info(f"Connecting to database: {db_name}")
-        conn = sqlite3.connect(db_name)
+        engine = get_sqlalchemy_engine()
+        if not engine:
+            logger.error("SQLAlchemy engine oluşturulamadı!")
+            return None
+            
         # Son 2 haftaya ait veriyi çekmek için zaman hesaplaması
         two_weeks_ago = datetime.now() - timedelta(days=14)
         timestamp_ms = int(two_weeks_ago.timestamp() * 1000)
         
         # Veritabanından veri çekme
-        query = f"SELECT timestamp, open, high, low, close, volume FROM {table_name} WHERE symbol = ? AND timeframe = ? AND timestamp >= ? ORDER BY timestamp ASC"
+        query = f"SELECT timestamp, open, high, low, close, volume FROM ohlcv_data WHERE symbol = %s AND timeframe = %s AND timestamp >= %s ORDER BY timestamp ASC"
         params = (symbol, timeframe, timestamp_ms)
 
         logger.info(f"Executing query for {symbol} {timeframe}")
-        df = pd.read_sql_query(query, conn, params=params)
+        df = pd.read_sql_query(query, engine, params=params)
         logger.info(f"Fetched {len(df)} records.")
 
         if df.empty:
@@ -368,15 +408,12 @@ def fetch_data_from_db(symbol, timeframe):
 
         return df
 
-    except sqlite3.Error as e:
-        logger.error(f"Database error: {e}")
-        return None
     except Exception as e:
         logger.error(f"An error occurred: {e}")
         return None
     finally:
-        if conn:
-            conn.close()
+        if engine:
+            engine.dispose()
             logger.info("Database connection closed.")
 
 # --- INDICATOR CALCULATION ---
