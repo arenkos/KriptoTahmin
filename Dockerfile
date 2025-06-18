@@ -1,4 +1,4 @@
-FROM python:3.9-slim
+FROM python:3.11-slim as base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -23,19 +23,20 @@ RUN sudo apt update -y && sudo apt-get install -y python3-pip \
     python3-venv build-essential make cmake \
     wget curl git
 # Build tailib
-RUN apt-get update && \
-    apt-get install -y build-essential wget && \
-    wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
-    tar -xzf ta-lib-0.4.0-src.tar.gz && \
-    cd ta-lib && \
-    ./configure --prefix=/usr && make && make install && \
-    cd .. && rm -rf ta-lib ta-lib-0.4.0-src.tar.gz && \
-    apt-get remove -y wget && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN sudo apt-get update && \
+    sudo apt-get install -y build-essential wget && \
+    wget https://github.com/TA-Lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz && \
+    tar -xzf ta-lib-0.6.4-src.tar.gz && \
+    cd ta-lib-0.6.4 && \
+    ./configure && make && sudo make install && \
+    sudo ldconfig &&\
+    sudo rm -rf /var/lib/apt/lists/*
 # Build proje
 RUN sudo apt update -y && sudo -E apt install -y tmux python3-flask &&\
     pip3 install Flask-Migrate scikit-learn email_validator
 
 RUN git clone https://github.com/arenkos/KriptoTahmin.git && cd KriptoTahmin &&\
+    sed -i '/sqlite3/d' requirements.txt && sed -i '/argparse/d' requirements.txt && sed -i '/talib/d' requirements.txt &&\
     pip3 install -r requirements.txt
 
 # give your own config or cp .env.example .env
@@ -49,10 +50,13 @@ WORKDIR /app
 
 # Gereksinimleri kopyala ve yükle
 COPY requirements.txt .
+RUN  sed -i '/sqlite3/d' requirements.txt && sed -i '/argparse/d' requirements.txt && sed -i '/talib/d' requirements.txt
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
+FROM base AS app
 # Uygulama dosyalarını kopyala
+RUN rm -rf /home/${USERNAME}/KriptoTahmin
 COPY . .
 
 # Ana scripti çalıştır
