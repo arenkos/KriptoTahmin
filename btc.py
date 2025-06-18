@@ -328,222 +328,211 @@ def run_strategy_and_save(df, user_email, symbol):
         trade_id, position, entry_price, entry_time_raw, entry_balance = open_trades[0]
         print(f"Açık pozisyon bulundu: {position} @ {entry_price}")
 
-    # Son birkaç mumu kontrol et (gerçek zamanlı işlem için)
-    start_index = max(ATR_PERIOD + 1, len(df) - 10)  # Son 10 mumu kontrol et
+    # *** ANA DÜZELTME: Sadece son candle'ı işle ***
+    # Son candle index'i (en son tamamlanan candle)
+    last_index = len(df) - 1
 
-    for i in range(start_index, len(df) - 1):
-        # NaN kontrolü
-        if (math.isnan(supertrend[i]) or math.isnan(supertrend[i - 1]) or
-                i - 1 < 0 or i >= len(close_array)):
-            continue
+    # NaN kontrolü
+    if (last_index < ATR_PERIOD + 1 or
+            math.isnan(supertrend[last_index]) or
+            math.isnan(supertrend[last_index - 1])):
+        print("Supertrend hesaplama için yeterli veri yok")
+        conn.close()
+        return
 
-        current_timestamp = int(df['timestamp'].iloc[i])
+    current_timestamp = int(df['timestamp'].iloc[last_index])
 
-        # Açık pozisyon varsa kontrol et
-        if position is not None and trade_id is not None:
-            # LONG pozisyonu için
-            if position == 'LONG':
-                # Stop loss kontrolü
-                if STOP_LOSS_PCT > 0 and close_array[i] <= entry_price * (1 - STOP_LOSS_PCT / 100):
-                    exit_price = close_array[i]
-                    # DÜZELTME: LONG için doğru kar/zarar hesaplama
-                    price_change_pct = ((exit_price - entry_price) / entry_price) * 100
-                    profit_loss = price_change_pct * LEVERAGE
-                    new_balance = entry_balance * (1 + profit_loss / 100)
-                    new_balance = max(0, new_balance)  # Negatif bakiye kontrolü
+    # *** DÜZELTME: Sadece birden fazla açık pozisyon kontrolü ***
+    cursor.execute("""
+        SELECT COUNT(*) FROM realtime_transactions
+        WHERE user_email = ? AND symbol = ? AND entry_time = ? AND trade_closed = 0
+    """, (user_email, symbol, current_timestamp))
 
-                    cursor.execute("""
-                        UPDATE realtime_transactions
-                        SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
-                        WHERE id = ?
-                    """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
+    existing_open_count = cursor.fetchone()[0]
+    if existing_open_count > 1:  # 1'den fazla açık pozisyon varsa
+        print(f"Bu timestamp ({current_timestamp}) için zaten birden fazla açık pozisyon var, atlanıyor...")
+        conn.close()
+        return
 
-                    print(
-                        f"LONG pozisyon stop loss ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
-                    position = None
-                    trade_id = None
-                    current_balance = new_balance
+    i = last_index  # Sadece son candle'ı kontrol et
 
-                # Take profit kontrolü
-                elif TAKE_PROFIT_PCT > 0 and close_array[i] >= entry_price * (1 + TAKE_PROFIT_PCT / 100):
-                    exit_price = close_array[i]
-                    # DÜZELTME: LONG için doğru kar/zarar hesaplama
-                    price_change_pct = ((exit_price - entry_price) / entry_price) * 100
-                    profit_loss = price_change_pct * LEVERAGE
-                    new_balance = entry_balance * (1 + profit_loss / 100)
-
-                    cursor.execute("""
-                        UPDATE realtime_transactions
-                        SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
-                        WHERE id = ?
-                    """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
-
-                    print(
-                        f"LONG pozisyon take profit ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
-                    position = None
-                    trade_id = None
-                    current_balance = new_balance
-
-                # Trend değişimi kontrolü
-                elif close_array[i] < supertrend[i] and close_array[i - 1] >= supertrend[i - 1]:
-                    if i + 1 < len(open_array):
-                        exit_price = open_array[i + 1]
-                        # DÜZELTME: LONG için doğru kar/zarar hesaplama
-                        price_change_pct = ((exit_price - entry_price) / entry_price) * 100
-                        profit_loss = price_change_pct * LEVERAGE
-                        new_balance = entry_balance * (1 + profit_loss / 100)
-                        new_balance = max(0, new_balance)  # Negatif bakiye kontrolü
-
-                        cursor.execute("""
-                            UPDATE realtime_transactions
-                            SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
-                            WHERE id = ?
-                        """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
-
-                        print(
-                            f"LONG pozisyon trend değişimi ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
-
-                        # Ters yönde SHORT pozisyon aç
-                        if new_balance > 0:
-                            cursor.execute("""
-                                INSERT INTO realtime_transactions 
-                                (user_email, symbol, trade_type, entry_price, entry_time, entry_balance, trade_closed)
-                                VALUES (?, ?, ?, ?, ?, ?, ?)
-                            """, (user_email, symbol, 'SHORT', exit_price, current_timestamp, new_balance, 0))
-
-                            trade_id = cursor.lastrowid
-                            position = 'SHORT'
-                            entry_price = exit_price
-                            entry_balance = new_balance
-                            current_balance = new_balance
-
-                            print(f"Yeni SHORT pozisyon açıldı: {entry_price} @ Bakiye: {entry_balance:.2f}")
-                        else:
-                            position = None
-                            trade_id = None
-
-            # SHORT pozisyonu için
-            elif position == 'SHORT':
-                # Stop loss kontrolü
-                if STOP_LOSS_PCT > 0 and close_array[i] >= entry_price * (1 + STOP_LOSS_PCT / 100):
-                    exit_price = close_array[i]
-                    # DÜZELTME: SHORT için doğru kar/zarar hesaplama
-                    price_change_pct = ((entry_price - exit_price) / entry_price) * 100
-                    profit_loss = price_change_pct * LEVERAGE
-                    new_balance = entry_balance * (1 + profit_loss / 100)
-                    new_balance = max(0, new_balance)  # Negatif bakiye kontrolü
-
-                    cursor.execute("""
-                        UPDATE realtime_transactions
-                        SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
-                        WHERE id = ?
-                    """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
-
-                    print(
-                        f"SHORT pozisyon stop loss ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
-                    position = None
-                    trade_id = None
-                    current_balance = new_balance
-
-                # Take profit kontrolü
-                elif TAKE_PROFIT_PCT > 0 and close_array[i] <= entry_price * (1 - TAKE_PROFIT_PCT / 100):
-                    exit_price = close_array[i]
-                    # DÜZELTME: SHORT için doğru kar/zarar hesaplama
-                    price_change_pct = ((entry_price - exit_price) / entry_price) * 100
-                    profit_loss = price_change_pct * LEVERAGE
-                    new_balance = entry_balance * (1 + profit_loss / 100)
-
-                    cursor.execute("""
-                        UPDATE realtime_transactions
-                        SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
-                        WHERE id = ?
-                    """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
-
-                    print(
-                        f"SHORT pozisyon take profit ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
-                    position = None
-                    trade_id = None
-                    current_balance = new_balance
-
-                # Trend değişimi kontrolü
-                elif close_array[i] > supertrend[i] and close_array[i - 1] <= supertrend[i - 1]:
-                    if i + 1 < len(open_array):
-                        exit_price = open_array[i + 1]
-                        # DÜZELTME: SHORT için doğru kar/zarar hesaplama
-                        price_change_pct = ((entry_price - exit_price) / entry_price) * 100
-                        profit_loss = price_change_pct * LEVERAGE
-                        new_balance = entry_balance * (1 + profit_loss / 100)
-                        new_balance = max(0, new_balance)  # Negatif bakiye kontrolü
-
-                        cursor.execute("""
-                            UPDATE realtime_transactions
-                            SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
-                            WHERE id = ?
-                        """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
-
-                        print(
-                            f"SHORT pozisyon trend değişimi ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
-
-                        # Ters yönde LONG pozisyon aç
-                        if new_balance > 0:
-                            cursor.execute("""
-                                INSERT INTO realtime_transactions 
-                                (user_email, symbol, trade_type, entry_price, entry_time, entry_balance, trade_closed)
-                                VALUES (?, ?, ?, ?, ?, ?, ?)
-                            """, (user_email, symbol, 'LONG', exit_price, current_timestamp, new_balance, 0))
-
-                            trade_id = cursor.lastrowid
-                            position = 'LONG'
-                            entry_price = exit_price
-                            entry_balance = new_balance
-                            current_balance = new_balance
-
-                            print(f"Yeni LONG pozisyon açıldı: {entry_price} @ Bakiye: {entry_balance:.2f}")
-                        else:
-                            position = None
-                            trade_id = None
-
-        # Pozisyon yoksa yeni pozisyon açma kontrolü
-        elif position is None and current_balance > 0:
-            # LONG sinyali
-            if (close_array[i - 1] > supertrend[i - 1] and
-                    close_array[i - 2] <= supertrend[i - 2]):
-                entry_price = open_array[i]
+    # Açık pozisyon varsa kontrol et
+    if position is not None and trade_id is not None:
+        # LONG pozisyonu için
+        if position == 'LONG':
+            # Stop loss kontrolü
+            if STOP_LOSS_PCT > 0 and close_array[i] <= entry_price * (1 - STOP_LOSS_PCT / 100):
+                exit_price = close_array[i]
+                price_change_pct = ((exit_price - entry_price) / entry_price) * 100
+                profit_loss = price_change_pct * LEVERAGE
+                new_balance = entry_balance * (1 + profit_loss / 100)
+                new_balance = max(0, new_balance)
 
                 cursor.execute("""
-                    INSERT INTO realtime_transactions 
-                    (user_email, symbol, trade_type, entry_price, entry_time, entry_balance, trade_closed)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (user_email, symbol, 'LONG', entry_price, current_timestamp, current_balance, 0))
+                    UPDATE realtime_transactions
+                    SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
+                    WHERE id = ?
+                """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
 
-                trade_id = cursor.lastrowid
-                position = 'LONG'
-                entry_balance = current_balance
+                print(
+                    f"LONG pozisyon stop loss ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
+                position = None
 
-                print(f"Yeni LONG pozisyon açıldı: {entry_price} @ Bakiye: {entry_balance:.2f}")
-
-            # SHORT sinyali
-            elif (close_array[i - 1] < supertrend[i - 1] and
-                  close_array[i - 2] >= supertrend[i - 2]):
-                entry_price = open_array[i]
+            # Take profit kontrolü
+            elif TAKE_PROFIT_PCT > 0 and close_array[i] >= entry_price * (1 + TAKE_PROFIT_PCT / 100):
+                exit_price = close_array[i]
+                price_change_pct = ((exit_price - entry_price) / entry_price) * 100
+                profit_loss = price_change_pct * LEVERAGE
+                new_balance = entry_balance * (1 + profit_loss / 100)
 
                 cursor.execute("""
-                    INSERT INTO realtime_transactions 
-                    (user_email, symbol, trade_type, entry_price, entry_time, entry_balance, trade_closed)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (user_email, symbol, 'SHORT', entry_price, current_timestamp, current_balance, 0))
+                    UPDATE realtime_transactions
+                    SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
+                    WHERE id = ?
+                """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
 
-                trade_id = cursor.lastrowid
-                position = 'SHORT'
-                entry_balance = current_balance
+                print(
+                    f"LONG pozisyon take profit ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
+                position = None
 
-                print(f"Yeni SHORT pozisyon açıldı: {entry_price} @ Bakiye: {entry_balance:.2f}")
+            # Trend değişimi kontrolü
+            elif close_array[i] < supertrend[i] and close_array[i - 1] >= supertrend[i - 1]:
+                exit_price = close_array[i]
+                price_change_pct = ((exit_price - entry_price) / entry_price) * 100
+                profit_loss = price_change_pct * LEVERAGE
+                new_balance = entry_balance * (1 + profit_loss / 100)
+                new_balance = max(0, new_balance)
 
-        conn.commit()
+                # Mevcut LONG pozisyonu kapat
+                cursor.execute("""
+                    UPDATE realtime_transactions
+                    SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
+                    WHERE id = ?
+                """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
 
+                print(
+                    f"LONG pozisyon trend değişimi ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
+
+                # Aynı candle'da ters yönde SHORT pozisyon aç
+                if new_balance > 0:
+                    cursor.execute("""
+                        INSERT INTO realtime_transactions 
+                        (user_email, symbol, trade_type, entry_price, entry_time, entry_balance, trade_closed)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (user_email, symbol, 'SHORT', exit_price, current_timestamp, new_balance, 0))
+
+                    print(f"Yeni SHORT pozisyon açıldı: {exit_price} @ Bakiye: {new_balance:.2f}")
+
+                    # Local değişkenleri güncelle
+                    position = 'SHORT'
+                    entry_price = exit_price
+                    entry_balance = new_balance
+                    trade_id = cursor.lastrowid
+                else:
+                    position = None
+
+        # SHORT pozisyonu için
+        elif position == 'SHORT':
+            # Stop loss kontrolü
+            if STOP_LOSS_PCT > 0 and close_array[i] >= entry_price * (1 + STOP_LOSS_PCT / 100):
+                exit_price = close_array[i]
+                price_change_pct = ((entry_price - exit_price) / entry_price) * 100
+                profit_loss = price_change_pct * LEVERAGE
+                new_balance = entry_balance * (1 + profit_loss / 100)
+                new_balance = max(0, new_balance)
+
+                cursor.execute("""
+                    UPDATE realtime_transactions
+                    SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
+                    WHERE id = ?
+                """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
+
+                print(
+                    f"SHORT pozisyon stop loss ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
+                position = None
+
+            # Take profit kontrolü
+            elif TAKE_PROFIT_PCT > 0 and close_array[i] <= entry_price * (1 - TAKE_PROFIT_PCT / 100):
+                exit_price = close_array[i]
+                price_change_pct = ((entry_price - exit_price) / entry_price) * 100
+                profit_loss = price_change_pct * LEVERAGE
+                new_balance = entry_balance * (1 + profit_loss / 100)
+
+                cursor.execute("""
+                    UPDATE realtime_transactions
+                    SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
+                    WHERE id = ?
+                """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
+
+                print(
+                    f"SHORT pozisyon take profit ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
+                position = None
+
+            # Trend değişimi kontrolü
+            elif close_array[i] > supertrend[i] and close_array[i - 1] <= supertrend[i - 1]:
+                exit_price = close_array[i]
+                price_change_pct = ((entry_price - exit_price) / entry_price) * 100
+                profit_loss = price_change_pct * LEVERAGE
+                new_balance = entry_balance * (1 + profit_loss / 100)
+                new_balance = max(0, new_balance)
+
+                # Mevcut SHORT pozisyonu kapat
+                cursor.execute("""
+                    UPDATE realtime_transactions
+                    SET exit_price = ?, exit_time = ?, exit_balance = ?, profit_loss = ?, trade_closed = 1
+                    WHERE id = ?
+                """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
+
+                print(
+                    f"SHORT pozisyon trend değişimi ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
+
+                # Aynı candle'da ters yönde LONG pozisyon aç
+                if new_balance > 0:
+                    cursor.execute("""
+                        INSERT INTO realtime_transactions 
+                        (user_email, symbol, trade_type, entry_price, entry_time, entry_balance, trade_closed)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (user_email, symbol, 'LONG', exit_price, current_timestamp, new_balance, 0))
+
+                    print(f"Yeni LONG pozisyon açıldı: {exit_price} @ Bakiye: {new_balance:.2f}")
+
+                    # Local değişkenleri güncelle
+                    position = 'LONG'
+                    entry_price = exit_price
+                    entry_balance = new_balance
+                    trade_id = cursor.lastrowid
+                else:
+                    position = None
+
+    # Pozisyon yoksa yeni pozisyon açma kontrolü
+    elif position is None and current_balance > 0:
+        # LONG sinyali - trend yukarı dönüyor
+        if (close_array[i] > supertrend[i] and close_array[i - 1] <= supertrend[i - 1]):
+            entry_price = close_array[i]
+
+            cursor.execute("""
+                INSERT INTO realtime_transactions 
+                (user_email, symbol, trade_type, entry_price, entry_time, entry_balance, trade_closed)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (user_email, symbol, 'LONG', entry_price, current_timestamp, current_balance, 0))
+
+            print(f"Yeni LONG pozisyon açıldı: {entry_price} @ Bakiye: {current_balance:.2f}")
+
+        # SHORT sinyali - trend aşağı dönüyor
+        elif (close_array[i] < supertrend[i] and close_array[i - 1] >= supertrend[i - 1]):
+            entry_price = close_array[i]
+
+            cursor.execute("""
+                INSERT INTO realtime_transactions 
+                (user_email, symbol, trade_type, entry_price, entry_time, entry_balance, trade_closed)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (user_email, symbol, 'SHORT', entry_price, current_timestamp, current_balance, 0))
+
+            print(f"Yeni SHORT pozisyon açıldı: {entry_price} @ Bakiye: {current_balance:.2f}")
+
+    conn.commit()
     conn.close()
     print("Strateji çalıştırma tamamlandı.")
-
 
 def run_simulation(df_ohlcv):
     app = create_app()
