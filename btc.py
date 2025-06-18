@@ -345,9 +345,12 @@ def run_strategy_and_save(df, user_email, symbol):
             if position == 'LONG':
                 # Stop loss kontrolü
                 if STOP_LOSS_PCT > 0 and close_array[i] <= entry_price * (1 - STOP_LOSS_PCT / 100):
-                    exit_price = entry_price * (1 - STOP_LOSS_PCT / 100)
-                    profit_loss = ((exit_price - entry_price) * LEVERAGE) / 100
-                    new_balance = entry_balance * (1 + profit_loss)
+                    exit_price = close_array[i]
+                    # DÜZELTME: LONG için doğru kar/zarar hesaplama
+                    price_change_pct = ((exit_price - entry_price) / entry_price) * 100
+                    profit_loss = price_change_pct * LEVERAGE
+                    new_balance = entry_balance * (1 + profit_loss / 100)
+                    new_balance = max(0, new_balance)  # Negatif bakiye kontrolü
 
                     cursor.execute("""
                         UPDATE realtime_transactions
@@ -356,16 +359,18 @@ def run_strategy_and_save(df, user_email, symbol):
                     """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
 
                     print(
-                        f"LONG pozisyon stop loss ile kapandı: Kar/Zarar: {profit_loss:.2f}, Yeni Bakiye: {new_balance:.2f}")
+                        f"LONG pozisyon stop loss ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
                     position = None
                     trade_id = None
                     current_balance = new_balance
 
                 # Take profit kontrolü
                 elif TAKE_PROFIT_PCT > 0 and close_array[i] >= entry_price * (1 + TAKE_PROFIT_PCT / 100):
-                    exit_price = entry_price * (1 + TAKE_PROFIT_PCT / 100)
-                    profit_loss = ((exit_price - entry_price) * LEVERAGE) / 100
-                    new_balance = entry_balance * (1 + profit_loss)
+                    exit_price = close_array[i]
+                    # DÜZELTME: LONG için doğru kar/zarar hesaplama
+                    price_change_pct = ((exit_price - entry_price) / entry_price) * 100
+                    profit_loss = price_change_pct * LEVERAGE
+                    new_balance = entry_balance * (1 + profit_loss / 100)
 
                     cursor.execute("""
                         UPDATE realtime_transactions
@@ -374,7 +379,7 @@ def run_strategy_and_save(df, user_email, symbol):
                     """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
 
                     print(
-                        f"LONG pozisyon take profit ile kapandı: Kar/Zarar: {profit_loss:.2f}, Yeni Bakiye: {new_balance:.2f}")
+                        f"LONG pozisyon take profit ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
                     position = None
                     trade_id = None
                     current_balance = new_balance
@@ -383,8 +388,11 @@ def run_strategy_and_save(df, user_email, symbol):
                 elif close_array[i] < supertrend[i] and close_array[i - 1] >= supertrend[i - 1]:
                     if i + 1 < len(open_array):
                         exit_price = open_array[i + 1]
-                        profit_loss = ((exit_price - entry_price) * LEVERAGE) / 100
-                        new_balance = entry_balance * (1 + profit_loss)
+                        # DÜZELTME: LONG için doğru kar/zarar hesaplama
+                        price_change_pct = ((exit_price - entry_price) / entry_price) * 100
+                        profit_loss = price_change_pct * LEVERAGE
+                        new_balance = entry_balance * (1 + profit_loss / 100)
+                        new_balance = max(0, new_balance)  # Negatif bakiye kontrolü
 
                         cursor.execute("""
                             UPDATE realtime_transactions
@@ -393,7 +401,7 @@ def run_strategy_and_save(df, user_email, symbol):
                         """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
 
                         print(
-                            f"LONG pozisyon trend değişimi ile kapandı: Kar/Zarar: {profit_loss:.2f}, Yeni Bakiye: {new_balance:.2f}")
+                            f"LONG pozisyon trend değişimi ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
 
                         # Ters yönde SHORT pozisyon aç
                         if new_balance > 0:
@@ -418,9 +426,12 @@ def run_strategy_and_save(df, user_email, symbol):
             elif position == 'SHORT':
                 # Stop loss kontrolü
                 if STOP_LOSS_PCT > 0 and close_array[i] >= entry_price * (1 + STOP_LOSS_PCT / 100):
-                    exit_price = entry_price * (1 + STOP_LOSS_PCT / 100)
-                    profit_loss = ((exit_price - entry_price) * LEVERAGE) / 100
-                    new_balance = entry_balance * (1 - profit_loss)
+                    exit_price = close_array[i]
+                    # DÜZELTME: SHORT için doğru kar/zarar hesaplama
+                    price_change_pct = ((entry_price - exit_price) / entry_price) * 100
+                    profit_loss = price_change_pct * LEVERAGE
+                    new_balance = entry_balance * (1 + profit_loss / 100)
+                    new_balance = max(0, new_balance)  # Negatif bakiye kontrolü
 
                     cursor.execute("""
                         UPDATE realtime_transactions
@@ -429,16 +440,18 @@ def run_strategy_and_save(df, user_email, symbol):
                     """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
 
                     print(
-                        f"SHORT pozisyon stop loss ile kapandı: Kar/Zarar: {profit_loss:.2f}, Yeni Bakiye: {new_balance:.2f}")
+                        f"SHORT pozisyon stop loss ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
                     position = None
                     trade_id = None
                     current_balance = new_balance
 
                 # Take profit kontrolü
                 elif TAKE_PROFIT_PCT > 0 and close_array[i] <= entry_price * (1 - TAKE_PROFIT_PCT / 100):
-                    exit_price = entry_price * (1 - TAKE_PROFIT_PCT / 100)
-                    profit_loss = ((exit_price - entry_price) * LEVERAGE) / 100
-                    new_balance = entry_balance * (1 - profit_loss)
+                    exit_price = close_array[i]
+                    # DÜZELTME: SHORT için doğru kar/zarar hesaplama
+                    price_change_pct = ((entry_price - exit_price) / entry_price) * 100
+                    profit_loss = price_change_pct * LEVERAGE
+                    new_balance = entry_balance * (1 + profit_loss / 100)
 
                     cursor.execute("""
                         UPDATE realtime_transactions
@@ -447,7 +460,7 @@ def run_strategy_and_save(df, user_email, symbol):
                     """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
 
                     print(
-                        f"SHORT pozisyon take profit ile kapandı: Kar/Zarar: {profit_loss:.2f}, Yeni Bakiye: {new_balance:.2f}")
+                        f"SHORT pozisyon take profit ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
                     position = None
                     trade_id = None
                     current_balance = new_balance
@@ -456,8 +469,11 @@ def run_strategy_and_save(df, user_email, symbol):
                 elif close_array[i] > supertrend[i] and close_array[i - 1] <= supertrend[i - 1]:
                     if i + 1 < len(open_array):
                         exit_price = open_array[i + 1]
-                        profit_loss = ((exit_price - entry_price) * LEVERAGE) / 100
-                        new_balance = entry_balance * (1 - profit_loss)
+                        # DÜZELTME: SHORT için doğru kar/zarar hesaplama
+                        price_change_pct = ((entry_price - exit_price) / entry_price) * 100
+                        profit_loss = price_change_pct * LEVERAGE
+                        new_balance = entry_balance * (1 + profit_loss / 100)
+                        new_balance = max(0, new_balance)  # Negatif bakiye kontrolü
 
                         cursor.execute("""
                             UPDATE realtime_transactions
@@ -466,7 +482,7 @@ def run_strategy_and_save(df, user_email, symbol):
                         """, (exit_price, current_timestamp, new_balance, profit_loss, trade_id))
 
                         print(
-                            f"SHORT pozisyon trend değişimi ile kapandı: Kar/Zarar: {profit_loss:.2f}, Yeni Bakiye: {new_balance:.2f}")
+                            f"SHORT pozisyon trend değişimi ile kapandı: Kar/Zarar: {profit_loss:.2f}%, Yeni Bakiye: {new_balance:.2f}")
 
                         # Ters yönde LONG pozisyon aç
                         if new_balance > 0:

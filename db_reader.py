@@ -52,7 +52,7 @@ def read_veriler():
     cursor = conn.cursor()
 
     query = """
-        DELETE FROM ohlcv_data WHERE timestamp = 1750192560000
+        DELETE FROM ohlcv_data WHERE id = 26267212
     """
 
     cursor.execute(query)
