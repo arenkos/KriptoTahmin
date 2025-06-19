@@ -43,4 +43,15 @@ class Config:
     MIN_STOP_LOSS = 0.5  # 0.5%
     MAX_STOP_LOSS = 5.0  # 5%
     MIN_TAKE_PROFIT = 1.0  # 1%
-    MAX_TAKE_PROFIT = 10.0  # 10% 
+    MAX_TAKE_PROFIT = 10.0  # 10%
+
+    # MySQL bağlantı ayarları (güvenli kullanım için .env dosyasına taşıyın)
+    MYSQL_CONFIG = {
+        "host": os.environ.get("MYSQL_HOST", "193.203.168.175"),
+        "user": os.environ.get("MYSQL_USER", "u162605596_kripto2"),
+        "password": os.environ.get("MYSQL_PASSWORD", "Arenkos1."),
+        "database": os.environ.get("MYSQL_DB", "u162605596_kripto2"),
+        "connection_timeout": 60,
+        "autocommit": True,
+        "buffered": True
+    } 

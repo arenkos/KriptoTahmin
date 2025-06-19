@@ -111,8 +111,18 @@ def dashboard():
         params.append(end_ts)
     where_sql = " AND ".join(where_clauses)
 
+    # DEBUG: SQL ve parametreler
+    print("DEBUG SQL:", where_sql)
+    print("DEBUG PARAMS:", params)
+    print("DEBUG SQL COUNT:", where_sql.count('%s'))
+    print("DEBUG PARAMS LEN:", len(params))
+    if where_sql.count('%s') != len(params):
+        raise Exception(f'SQL parametre sayısı ile params listesi eşleşmiyor! SQL: {where_sql}, params: {params}')
+
     # Toplam işlem sayısı
-    cursor.execute(f"SELECT COUNT(*) FROM realtime_transactions WHERE {where_sql}", params)
+    cursor.execute(f"""
+        SELECT COUNT(*) FROM realtime_transactions WHERE {where_sql}
+    """, params)
     total = cursor.fetchone()[0]
     offset = (page - 1) * per_page
 
@@ -128,7 +138,9 @@ def dashboard():
     transactions_data = cursor.fetchall()
 
     # Tüm filtreli işlemleri istatistik için çek
-    cursor.execute(f"SELECT trade_type, profit_loss, trade_closed FROM realtime_transactions WHERE {where_sql}", params)
+    cursor.execute(f"""
+        SELECT trade_type, profit_loss, trade_closed FROM realtime_transactions WHERE {where_sql}
+    """, params)
     all_data = cursor.fetchall()
 
     # Verileri işle
@@ -833,145 +845,156 @@ def apply_settings():
 @login_required
 def transaction_history(symbol, timeframe):
     try:
-        # Filtre parametrelerini al
         page = request.args.get('page', 1, type=int)
         per_page = 10
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
-        trade_type = request.args.get('trade_type')  # 'LONG', 'SHORT', None
-        success = request.args.get('success')  # '1' (başarılı), '0' (başarısız), None
+        trade_type = request.args.get('trade_type')
+        success = request.args.get('success')
 
-        # MySQL veritabanına bağlan
         conn = get_mysql_connection()
-        if not conn:
-            return render_template('main/transaction_history.html', 
-                                error="Veritabanı bağlantısı kurulamadı.")
-        cursor = conn.cursor()
+        cursor = conn.cursor(dictionary=True)
 
-        # En güncel analysis_id'yi bul
         cursor.execute("""
             SELECT id FROM analysis_results
             WHERE symbol = %s AND timeframe = %s
             ORDER BY created_at DESC LIMIT 1
         """, (symbol, timeframe))
         row = cursor.fetchone()
-        
         if not row:
-            conn.close()
-            return render_template('main/transaction_history.html', 
-                                error="Bu sembol ve zaman dilimi için analiz sonucu bulunamadı.")
-        
-        analysis_id = row[0]
+            total = 0
+            transactions = []
+            stats = {}
+        else:
+            latest_analysis_id = row['id']
+            where_clauses = ["analysis_id = %s"]
+            params = [latest_analysis_id]
+            if trade_type in ('LONG', 'SHORT'):
+                where_clauses.append("trade_type = %s")
+                params.append(trade_type)
+            if success == '1':
+                where_clauses.append("profit_loss > 0")
+            elif success == '0':
+                where_clauses.append("profit_loss <= 0")
+            if start_date:
+                where_clauses.append("entry_time >= %s")
+                try:
+                    start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp()) * 1000
+                except:
+                    start_ts = 0
+                params.append(start_ts)
+            if end_date:
+                where_clauses.append("entry_time <= %s")
+                try:
+                    end_ts = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp()) * 1000
+                except:
+                    end_ts = 9999999999999
+                params.append(end_ts)
+            where_sql = " AND ".join(where_clauses)
 
-        # WHERE koşullarını oluştur
-        where_clauses = ["analysis_id = %s"]
-        params = [analysis_id]
-        
-        if trade_type in ('LONG', 'SHORT'):
-            where_clauses.append("trade_type = %s")
-            params.append(trade_type)
-        
-        if success == '1':
-            where_clauses.append("profit_loss > 0")
-        elif success == '0':
-            where_clauses.append("profit_loss <= 0")
-        
-        if start_date:
-            where_clauses.append("entry_time >= %s")
+            print("DEBUG SQL:", where_sql)
+            print("DEBUG PARAMS:", params)
+            print("DEBUG SQL COUNT:", where_sql.count('%s'))
+            print("DEBUG PARAMS LEN:", len(params))
+            if where_sql.count('%s') != len(params):
+                raise Exception(f'SQL parametre sayısı ile params listesi eşleşmiyor! SQL: {where_sql}, params: {params}')
+
+            cursor.execute(f"""
+                SELECT COUNT(*) FROM backtest_transactions
+                WHERE {where_sql}
+            """, params)
+            count_row = cursor.fetchone()
             try:
-                start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp()) * 1000
+                total = count_row['COUNT(*)']
             except:
-                start_ts = 0
-            params.append(start_ts)
-        
-        if end_date:
-            where_clauses.append("entry_time <= %s")
-            try:
-                end_ts = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp()) * 1000
-            except:
-                end_ts = 9999999999999
-            params.append(end_ts)
-        
-        where_sql = " AND ".join(where_clauses)
+                total = count_row[0]
+            offset = (page - 1) * per_page
 
-        # Toplam işlem sayısı
-        cursor.execute(f"SELECT COUNT(*) FROM backtest_transactions WHERE {where_sql}", params)
-        total = cursor.fetchone()[0]
-        offset = (page - 1) * per_page
+            cursor.execute(f"""
+                SELECT trade_type, entry_price, entry_time, entry_balance,
+                       exit_price, exit_time, exit_balance, profit_loss, trade_closed
+                FROM backtest_transactions
+                WHERE {where_sql}
+                ORDER BY entry_time DESC
+                LIMIT %s OFFSET %s
+            """, params + [per_page, offset])
+            transactions_data = cursor.fetchall()
 
-        # İşlemleri getir
-        cursor.execute(f"""
-            SELECT trade_type, entry_price, entry_time, entry_balance,
-                   exit_price, exit_time, exit_balance, profit_loss, trade_closed
-            FROM backtest_transactions
-            WHERE {where_sql}
-            ORDER BY entry_time DESC
-            LIMIT %s OFFSET %s
-        """, params + [per_page, offset])
-        transactions_data = cursor.fetchall()
+            cursor.execute(f"""
+                SELECT trade_type, profit_loss, trade_closed
+                FROM backtest_transactions
+                WHERE {where_sql}
+            """, params)
+            all_data = cursor.fetchall()
 
-        # Tüm filtreli işlemleri istatistik için çek
-        cursor.execute(f"""
-            SELECT trade_type, profit_loss, trade_closed
-            FROM backtest_transactions
-            WHERE {where_sql}
-        """, params)
-        all_data = cursor.fetchall()
+            transactions = []
+            for t in transactions_data:
+                try:
+                    entry_timestamp = int(t['entry_time']) if t['entry_time'] else None
+                    exit_timestamp = int(t['exit_time']) if t['exit_time'] else None
+                    def ts_to_dt(ts):
+                        if not ts:
+                            return None
+                        ts = int(ts)
+                        if len(str(ts)) > 10:
+                            return datetime.fromtimestamp(ts / 1000)
+                        else:
+                            return datetime.fromtimestamp(ts)
+                    transaction = {
+                        'trade_type': t['trade_type'],
+                        'entry_price': t['entry_price'],
+                        'entry_time': ts_to_dt(entry_timestamp),
+                        'entry_balance': t['entry_balance'],
+                        'exit_price': t['exit_price'],
+                        'exit_time': ts_to_dt(exit_timestamp),
+                        'exit_balance': t['exit_balance'],
+                        'profit_loss': t['profit_loss'],
+                        'trade_closed': bool(t['trade_closed'])
+                    }
+                    transactions.append(transaction)
+                except Exception as e:
+                    print(f"İşlem dönüştürme hatası: {str(e)}")
+                    continue
 
-        # Verileri işle
-        transactions = []
-        for t in transactions_data:
-            try:
-                entry_timestamp = int(t[2]) if t[2] else None
-                exit_timestamp = int(t[5]) if t[5] else None
-                def ts_to_dt(ts):
-                    if not ts:
-                        return None
-                    ts = int(ts)
-                    if len(str(ts)) > 10:
-                        return datetime.fromtimestamp(ts / 1000)
-                    else:
-                        return datetime.fromtimestamp(ts)
-                transaction = {
-                    'trade_type': t[0],
-                    'entry_price': t[1],
-                    'entry_time': ts_to_dt(entry_timestamp),
-                    'entry_balance': t[3],
-                    'exit_price': t[4],
-                    'exit_time': ts_to_dt(exit_timestamp),
-                    'exit_balance': t[6],
-                    'profit_loss': t[7] if t[7] is not None else 0,
-                    'trade_closed': bool(t[8])
-                }
-                transactions.append(transaction)
-            except Exception as e:
-                print(f"İşlem dönüştürme hatası: {str(e)}")
-                continue
+            total_long = sum(1 for x in all_data if x['trade_type'] == 'LONG')
+            total_short = sum(1 for x in all_data if x['trade_type'] == 'SHORT')
+            long_success = sum(1 for x in all_data if x['trade_type'] == 'LONG' and x['profit_loss'] > 0)
+            short_success = sum(1 for x in all_data if x['trade_type'] == 'SHORT' and x['profit_loss'] > 0)
+            long_fail = total_long - long_success
+            short_fail = total_short - short_success
+            total_success = long_success + short_success
+            total_fail = long_fail + short_fail
+            total_count = total_long + total_short
+            total_profit = sum(x['profit_loss'] for x in all_data if x['profit_loss'] is not None and x['profit_loss'] > 0)
+            total_loss = sum(x['profit_loss'] for x in all_data if x['profit_loss'] is not None and x['profit_loss'] < 0)
+            max_profit = max([x['profit_loss'] for x in all_data if x['profit_loss'] is not None], default=0)
+            min_profit = min([x['profit_loss'] for x in all_data if x['profit_loss'] is not None], default=0)
+            stats = {
+                'total': total_count,
+                'long': total_long,
+                'short': total_short,
+                'long_success': long_success,
+                'short_success': short_success,
+                'long_fail': long_fail,
+                'short_fail': short_fail,
+                'long_success_pct': (long_success / total_long * 100) if total_long else 0,
+                'short_success_pct': (short_success / total_short * 100) if total_short else 0,
+                'total_success': total_success,
+                'total_fail': total_fail,
+                'total_success_pct': (total_success / total_count * 100) if total_count else 0,
+                'total_profit': total_profit,
+                'total_loss': total_loss,
+                'max_profit': max_profit,
+                'min_profit': min_profit,
+                'total_trades': total_count,
+                'total_long': total_long,
+                'total_short': total_short,
+                'long_success_rate': (long_success / total_long * 100) if total_long else 0,
+                'short_success_rate': (short_success / total_short * 100) if total_short else 0,
+                'success_rate': (total_success / total_count * 100) if total_count else 0,
+                'successful_trades': total_success
+            }
 
-        # İstatistikleri hesapla
-        total_long = sum(1 for x in all_data if x[0] == 'LONG')
-        total_short = sum(1 for x in all_data if x[0] == 'SHORT')
-        long_success = sum(1 for x in all_data if x[0] == 'LONG' and x[1] is not None and x[1] > 0)
-        short_success = sum(1 for x in all_data if x[0] == 'SHORT' and x[1] is not None and x[1] > 0)
-        
-        total_trades = len(all_data)
-        successful_trades = sum(1 for x in all_data if x[1] is not None and x[1] > 0)
-        total_profit = sum(x[1] for x in all_data if x[1] is not None)
-        
-        stats = {
-            'total_trades': total_trades,
-            'successful_trades': successful_trades,
-            'success_rate': (successful_trades / total_trades * 100) if total_trades > 0 else 0,
-            'total_profit': total_profit,
-            'total_long': total_long,
-            'total_short': total_short,
-            'long_success': long_success,
-            'short_success': short_success,
-            'long_success_rate': (long_success / total_long * 100) if total_long > 0 else 0,
-            'short_success_rate': (short_success / total_short * 100) if total_short > 0 else 0
-        }
-
-        # Sayfalama sınıfı
         class Pagination:
             def __init__(self, items, page, per_page, total):
                 self.items = items
@@ -981,16 +1004,16 @@ def transaction_history(symbol, timeframe):
                 self.pages = (total + per_page - 1) // per_page
                 self.has_prev = page > 1
                 self.has_next = page < self.pages
-                self.prev_num = page - 1 if self.has_prev else None
-                self.next_num = page + 1 if self.has_next else None
+                self.prev_num = page - 1
+                self.next_num = page + 1
 
             def iter_pages(self, left_edge=2, left_current=2, right_current=3, right_edge=2):
                 last = 0
                 for num in range(1, self.pages + 1):
-                    if (num <= left_edge or 
-                        (num > self.page - left_current - 1 and 
-                         num < self.page + right_current) or 
-                        num > self.pages - right_edge):
+                    if (num <= left_edge or
+                        (num > self.page - left_current - 1 and
+                         num < self.page + right_current) or
+                        num > self.pages - right_edge + 1):
                         if last + 1 != num:
                             yield None
                         yield num
@@ -1000,22 +1023,22 @@ def transaction_history(symbol, timeframe):
         conn.close()
 
         return render_template('main/transaction_history.html',
-                            transactions=transactions,
-                            pagination=pagination,
-                            symbol=symbol,
-                            timeframe=timeframe,
-                            stats=stats,
-                            filters={
-                                'start_date': start_date,
-                                'end_date': end_date,
-                                'trade_type': trade_type,
-                                'success': success
-                            })
+                             symbol=symbol,
+                             timeframe=timeframe,
+                             transactions=pagination,
+                             stats=stats,
+                             filters={
+                                 'start_date': start_date,
+                                 'end_date': end_date,
+                                 'trade_type': trade_type,
+                                 'success': success
+                             })
 
     except Exception as e:
-        print(f"Transaction history hatası: {str(e)}")
-        return render_template('main/transaction_history.html', 
-                            error=f"Veri çekme hatası: {str(e)}")
+        print(f"İşlem geçmişi yüklenirken hata: {str(e)}")
+        traceback.print_exc()
+        flash('İşlem geçmişi yüklenirken bir hata oluştu. Lütfen daha sonra tekrar deneyin.', 'error')
+        return redirect(url_for('main.dashboard'))
 
 @bp.route('/realtime_transaction_history')
 @login_required

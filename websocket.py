@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Optional, Callable
 import logging
 import ssl
+from config import Config
 
 # Logging konfigürasyonu
 logging.basicConfig(level=logging.INFO)
@@ -17,32 +18,9 @@ logger = logging.getLogger(__name__)
 # --- MySQL Bağlantı Fonksiyonu ---
 def get_mysql_connection():
     try:
-        return mysql.connector.connect(
-            host="193.203.168.175",
-            user="u162605596_kripto2",
-            password="Arenkos1.",
-            database="u162605596_kripto2",
-            connection_timeout=60,
-            autocommit=True,
-            buffered=True
-        )
+        return mysql.connector.connect(**Config.MYSQL_CONFIG)
     except mysql.connector.Error as err:
         logger.error(f"MySQL bağlantı hatası: {err}")
-        return None
-    
-def set_mysql_connection():
-    try:
-        return mysql.connector.connect(
-            host="193.203.168.175",
-            user="u162605596_kripto2",
-            password="Arenkos1.",
-            database="u162605596_kripto2",
-            connection_timeout=60,
-            autocommit=True,
-            buffered=True
-        )
-    except mysql.connector.Error as err:
-        print(f"MySQL bağlantı hatası: {err}")
         return None
 
 
@@ -153,33 +131,32 @@ class BinanceWebSocketClient:
 
     def save_to_database(self, kline_data):
         """Kline verisini veritabanına kaydet"""
+        conn = None
         try:
-            # OHLCV işlemleri için get_mysql_connection kullan
             conn = get_mysql_connection()
             if not conn:
                 logger.error("MySQL bağlantısı kurulamadı!")
                 return
             cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS ohlcv_data (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        symbol VARCHAR(50) NOT NULL,
+                        timestamp BIGINT NOT NULL,
+                        timeframe VARCHAR(10) NOT NULL,
+                        open DECIMAL(20,8) NOT NULL,
+                        high DECIMAL(20,8) NOT NULL,
+                        low DECIMAL(20,8) NOT NULL,
+                        close DECIMAL(20,8) NOT NULL,
+                        volume DECIMAL(20,8) NOT NULL,
+                        UNIQUE KEY unique_symbol_timestamp_timeframe (symbol, timestamp, timeframe)
+                    )
+                ''')
+            except Exception as e:
+                logger.warning(f"Tablo oluşturulamadı veya zaten var: {e}")
 
-            # Tabloyu oluştur (yoksa)
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS ohlcv_data (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    symbol VARCHAR(50) NOT NULL,
-                    timestamp BIGINT NOT NULL,
-                    timeframe VARCHAR(10) NOT NULL,
-                    open DECIMAL(20,8) NOT NULL,
-                    high DECIMAL(20,8) NOT NULL,
-                    low DECIMAL(20,8) NOT NULL,
-                    close DECIMAL(20,8) NOT NULL,
-                    volume DECIMAL(20,8) NOT NULL,
-                    UNIQUE KEY unique_symbol_timestamp_timeframe (symbol, timestamp, timeframe)
-                )
-            ''')
-
-            # Veriyi kaydet
             symbol_formatted = kline_data['symbol'].replace('USDT', '/USDT')
-
             cursor.execute('''
                 INSERT INTO ohlcv_data 
                 (symbol, timestamp, timeframe, open, high, low, close, volume)
@@ -194,31 +171,20 @@ class BinanceWebSocketClient:
                 symbol_formatted,
                 kline_data['timestamp'],
                 '1m',
-                kline_data['open'],
-                kline_data['high'],
-                kline_data['low'],
-                kline_data['close'],
-                kline_data['volume']
+                float(kline_data['open']),
+                float(kline_data['high']),
+                float(kline_data['low']),
+                float(kline_data['close']),
+                float(kline_data['volume'])
             ))
-
             conn.commit()
-            conn.close()
-
-            logger.debug(
-                f"Veri kaydedildi: {symbol_formatted} - {datetime.fromtimestamp(kline_data['timestamp'] / 1000)}")
-
-            # Eğer realtime_transactions tablosuna da yazmak isterseniz:
-            # set_conn = set_mysql_connection()
-            # if set_conn:
-            #     set_cursor = set_conn.cursor()
-            #     # Burada realtime_transactions için ekleme/güncelleme işlemleri yapılabilir
-            #     set_conn.commit()
-            #     set_conn.close()
-
         except mysql.connector.Error as err:
             logger.error(f"MySQL hatası: {err}")
         except Exception as e:
             logger.error(f"Veri kaydetme hatası: {e}")
+        finally:
+            if conn:
+                conn.close()
 
     def get_last_price(self) -> Optional[float]:
         """Son fiyatı döndür"""

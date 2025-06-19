@@ -107,7 +107,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% if pagination.items %}
+                        {% if pagination and pagination.items %}
                             {% for transaction in pagination.items %}
                             <tr>
                                 <td>
@@ -159,7 +159,7 @@
             </div>
 
             <!-- Sayfalandırma -->
-            {% if pagination.pages > 1 %}
+            {% if pagination and pagination.pages > 1 %}
             <nav aria-label="Sayfa navigasyonu" class="mt-4">
                 <ul class="pagination justify-content-center">
                     <!-- Önceki sayfa -->
@@ -196,7 +196,11 @@
 
             <!-- Toplam sonuç sayısı -->
             <div class="text-center text-muted mt-3">
-                Toplam {{ pagination.total }} işlem bulundu, sayfa başına {{ pagination.per_page }} işlem gösteriliyor.
+                {% if pagination %}
+                    Toplam {{ pagination.total }} işlem bulundu, sayfa başına {{ pagination.per_page }} işlem gösteriliyor.
+                {% else %}
+                    Sonuç bulunamadı.
+                {% endif %}
             </div>
         </div>
     </div>

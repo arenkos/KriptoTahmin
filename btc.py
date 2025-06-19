@@ -353,7 +353,7 @@ def run_strategy_and_save(df, user_email, symbol):
         print("Yeterli veri yok")
         return
 
-    # Arrays oluştur
+    # Arrays oluştur ve float'a dönüştür
     close_array = df["close"].values.astype(float)
     high_array = df["high"].values.astype(float)
     low_array = df["low"].values.astype(float)
@@ -361,6 +361,18 @@ def run_strategy_and_save(df, user_email, symbol):
 
     # Supertrend hesapla
     supertrend = generateSupertrend(close_array, high_array, low_array, ATR_PERIOD, ATR_MULTIPLIER)
+    
+    # Debug: Son değerleri yazdır
+    print(f"Son close: {close_array[-1]:.2f}")
+    print(f"Son supertrend: {supertrend[-1]:.2f}")
+    print(f"Önceki close: {close_array[-2]:.2f}")
+    print(f"Önceki supertrend: {supertrend[-2]:.2f}")
+    
+    # Sinyal koşullarını kontrol et
+    long_signal = close_array[-1] > supertrend[-1] and close_array[-2] <= supertrend[-2]
+    short_signal = close_array[-1] < supertrend[-1] and close_array[-2] >= supertrend[-2]
+    print(f"LONG sinyali: {long_signal}")
+    print(f"SHORT sinyali: {short_signal}")
 
     # Veritabanı bağlantısı
     conn = set_mysql_connection()
@@ -384,7 +396,7 @@ def run_strategy_and_save(df, user_email, symbol):
         ORDER BY exit_time DESC LIMIT 1
     """, (user_email, symbol))
     last_balance = cursor.fetchone()
-    current_balance = last_balance[0] if last_balance else INITIAL_BALANCE
+    current_balance = float(last_balance[0]) if last_balance and last_balance[0] is not None else INITIAL_BALANCE
 
     # Açık pozisyon kontrolü
     position = None
@@ -394,6 +406,8 @@ def run_strategy_and_save(df, user_email, symbol):
 
     if open_trades:
         trade_id, position, entry_price, entry_time_raw, entry_balance = open_trades[0]
+        entry_price = float(entry_price) if entry_price is not None else 0.0
+        entry_balance = float(entry_balance) if entry_balance is not None else 0.0
         print(f"Açık pozisyon bulundu: {position} @ {entry_price}")
 
     # *** ANA DÜZELTME: Sadece son candle'ı işle ***
@@ -616,6 +630,15 @@ def run_simulation(df_ohlcv):
 
 def on_new_data(kline_data):
     print(f"Yeni veri geldi: {kline_data['symbol']} - {kline_data['close']} - {datetime.fromtimestamp(kline_data['timestamp'] / 1000)}")
+    
+    # Gelen veriyi float'a dönüştür
+    try:
+        kline_data['close'] = float(kline_data['close'])
+        kline_data['timestamp'] = int(kline_data['timestamp'])
+    except (ValueError, TypeError) as e:
+        print(f"Veri dönüştürme hatası: {e}")
+        return
+    
     # Son 200 mumu çek
     df_current_ohlcv = get_ohlcv_1m(limit=200)
     if df_current_ohlcv.empty or len(df_current_ohlcv) < ATR_PERIOD + 1:
