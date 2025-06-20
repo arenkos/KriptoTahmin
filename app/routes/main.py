@@ -201,15 +201,12 @@ def dashboard():
     total_short = sum(1 for x in all_data if x[0] == 'SHORT')
     long_success = sum(1 for x in all_data if x[0] == 'LONG' and x[1] is not None and x[1] > 0)
     short_success = sum(1 for x in all_data if x[0] == 'SHORT' and x[1] is not None and x[1] > 0)
-    
     total_trades = len(all_data)
     successful_trades = sum(1 for x in all_data if x[1] is not None and x[1] > 0)
-    total_profit = sum(x[1] for x in all_data if x[1] is not None and x[1] > 0)
-    total_loss = sum(x[1] for x in all_data if x[1] is not None and x[1] <= 0)
-    
+    total_profit = sum(x[1] for x in all_data if x[1] is not None)
+    total_loss = sum(x[1] for x in all_data if x[1] is not None and x[1] < 0)
     profits = [x[1] for x in all_data if x[1] is not None and x[1] > 0]
     losses = [x[1] for x in all_data if x[1] is not None and x[1] <= 0]
-    
     stats = {
         'total_trades': total_trades,
         'successful_trades': successful_trades,
@@ -965,7 +962,7 @@ def transaction_history(symbol, timeframe):
             total_success = long_success + short_success
             total_fail = long_fail + short_fail
             total_count = total_long + total_short
-            total_profit = sum(x['profit_loss'] for x in all_data if x['profit_loss'] is not None and x['profit_loss'] > 0)
+            total_profit = sum(x['profit_loss'] for x in all_data if x['profit_loss'] is not None)
             total_loss = sum(x['profit_loss'] for x in all_data if x['profit_loss'] is not None and x['profit_loss'] < 0)
             max_profit = max([x['profit_loss'] for x in all_data if x['profit_loss'] is not None], default=0)
             min_profit = min([x['profit_loss'] for x in all_data if x['profit_loss'] is not None], default=0)
