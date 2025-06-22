@@ -270,88 +270,44 @@ def dashboard():
 @login_required
 def settings():
     form = SettingsForm()
-    # Form seçeneklerini doldur
-    form.symbol.choices = [(s, s) for s in SUPPORTED_SYMBOLS]
-    form.timeframe.choices = [(t, t) for t in TIMEFRAMES]
-
-    # Düzenlenecek ayarın ID'sini al
-    settings_id = request.args.get('settings_id', type=int)
+    settings_id = request.args.get('settings_id')
     editing_settings = None
+
+    # Eğer bir ayar düzenleniyorsa, onu bul
     if settings_id:
         editing_settings = TradingSettings.query.get_or_404(settings_id)
-        if editing_settings.user_id != current_user.id:
-            flash('Bu ayarlara erişim izniniz yok', 'danger')
+        if current_user.id != editing_settings.user_id:
+            flash('Bu işlem için yetkiniz yok', 'danger')
             return redirect(url_for('main.dashboard'))
 
-    if request.method == 'POST' and form.validate_on_submit():
-        if editing_settings:
-            # Mevcut ayarı güncelle
-            editing_settings.symbol = form.symbol.data
-            editing_settings.timeframe = form.timeframe.data
-            editing_settings.leverage = form.leverage.data
-            editing_settings.stop_loss = form.stop_loss.data
-            editing_settings.take_profit = form.take_profit.data
-            editing_settings.atr_period = form.atr_period.data
-            editing_settings.atr_multiplier = form.atr_multiplier.data
-            editing_settings.api_key = form.api_key.data
-            editing_settings.api_secret = form.api_secret.data
-            editing_settings.balance = form.balance.data
-            editing_settings.updated_at = datetime.utcnow()
-            flash('Ayar başarıyla güncellendi', 'success')
-        else:
-            # Yeni ayar oluştur
-            new_settings = TradingSettings(
-                user_id=current_user.id,
-                symbol=form.symbol.data,
-                timeframe=form.timeframe.data,
-                leverage=form.leverage.data,
-                stop_loss=form.stop_loss.data,
-                take_profit=form.take_profit.data,
-                atr_period=form.atr_period.data,
-                atr_multiplier=form.atr_multiplier.data,
-                api_key=form.api_key.data,
-                api_secret=form.api_secret.data,
-                balance=form.balance.data
-            )
-            db.session.add(new_settings)
-            flash('Yeni ayar başarıyla oluşturuldu', 'success')
+    # Form gönderildiğinde ve geçerli olduğunda
+    if form.validate_on_submit():
+        # Kullanılacak ayar nesnesini belirle (yeni veya mevcut)
+        target_settings = editing_settings if editing_settings else TradingSettings(user_id=current_user.id)
         
+        # Form verilerini nesneye ata
+        form.populate_obj(target_settings)
+
+        # Veritabanına ekle/güncelle ve kaydet
+        if not editing_settings:
+            db.session.add(target_settings)
         db.session.commit()
+        
+        flash('Ayarlar kaydedildi', 'success')
         return redirect(url_for('main.dashboard'))
 
-    # GET ise mevcut ayarları forma doldur
+    # Sayfa ilk kez yükleniyorsa (GET request)
     if request.method == 'GET':
         if editing_settings:
-            # Düzenlenen ayarın bilgilerini forma doldur
-            form.symbol.data = editing_settings.symbol
-            form.timeframe.data = editing_settings.timeframe
-            form.leverage.data = editing_settings.leverage
-            form.stop_loss.data = editing_settings.stop_loss
-            form.take_profit.data = editing_settings.take_profit
-            form.atr_period.data = editing_settings.atr_period
-            form.atr_multiplier.data = editing_settings.atr_multiplier
-            form.api_key.data = editing_settings.api_key
-            form.api_secret.data = editing_settings.api_secret
-            form.balance.data = editing_settings.balance
+            # Düzenleme modundaysa, form'u mevcut ayarlarla doldur
+            form.process(obj=editing_settings)
         else:
-            # Yeni ayar için son kullanılan ayarları doldur
-            last_settings = TradingSettings.query.filter_by(
-                user_id=current_user.id
-            ).order_by(TradingSettings.updated_at.desc()).first()
-                
-        if last_settings:
-            form.symbol.data = last_settings.symbol
-            form.timeframe.data = last_settings.timeframe
-            form.leverage.data = last_settings.leverage
-            form.stop_loss.data = last_settings.stop_loss
-            form.take_profit.data = last_settings.take_profit
-            form.atr_period.data = last_settings.atr_period
-            form.atr_multiplier.data = last_settings.atr_multiplier
-            form.api_key.data = last_settings.api_key
-            form.api_secret.data = last_settings.api_secret
-            form.balance.data = last_settings.balance
+            # Yeni ayar modundaysa, kullanıcının son ayarlarını bul ve form'u doldur
+            last_settings = TradingSettings.query.filter_by(user_id=current_user.id).order_by(TradingSettings.updated_at.desc()).first()
+            if last_settings:
+                form.process(obj=last_settings)
 
-        return render_template('main/settings.html', form=form, editing_settings=editing_settings)
+    return render_template('main/settings.html', form=form, editing_settings=editing_settings)
 
 @bp.route('/analyze/<symbol>/<timeframe>')
 @login_required
