@@ -449,6 +449,7 @@ def run_strategy_and_save(df, user_email, symbol):
                 profit_loss = price_change_pct * LEVERAGE
                 new_balance = entry_balance * (1 + profit_loss / 100)
                 new_balance = max(0, new_balance)
+                profit_loss = new_balance - entry_balance
 
                 cursor.execute("""
                     UPDATE realtime_transactions
@@ -466,6 +467,7 @@ def run_strategy_and_save(df, user_email, symbol):
                 price_change_pct = ((exit_price - entry_price) / entry_price) * 100
                 profit_loss = price_change_pct * LEVERAGE
                 new_balance = entry_balance * (1 + profit_loss / 100)
+                profit_loss = new_balance - entry_balance
 
                 cursor.execute("""
                     UPDATE realtime_transactions
@@ -484,6 +486,7 @@ def run_strategy_and_save(df, user_email, symbol):
                 profit_loss = price_change_pct * LEVERAGE
                 new_balance = entry_balance * (1 + profit_loss / 100)
                 new_balance = max(0, new_balance)
+                profit_loss = new_balance - entry_balance
 
                 # Mevcut LONG pozisyonu kapat
                 cursor.execute("""
@@ -522,6 +525,7 @@ def run_strategy_and_save(df, user_email, symbol):
                 profit_loss = price_change_pct * LEVERAGE
                 new_balance = entry_balance * (1 + profit_loss / 100)
                 new_balance = max(0, new_balance)
+                profit_loss = new_balance - entry_balance
 
                 cursor.execute("""
                     UPDATE realtime_transactions
@@ -539,6 +543,7 @@ def run_strategy_and_save(df, user_email, symbol):
                 price_change_pct = ((entry_price - exit_price) / entry_price) * 100
                 profit_loss = price_change_pct * LEVERAGE
                 new_balance = entry_balance * (1 + profit_loss / 100)
+                profit_loss = new_balance - entry_balance
 
                 cursor.execute("""
                     UPDATE realtime_transactions
@@ -557,6 +562,7 @@ def run_strategy_and_save(df, user_email, symbol):
                 profit_loss = price_change_pct * LEVERAGE
                 new_balance = entry_balance * (1 + profit_loss / 100)
                 new_balance = max(0, new_balance)
+                profit_loss = new_balance - entry_balance
 
                 # Mevcut SHORT pozisyonu kapat
                 cursor.execute("""
